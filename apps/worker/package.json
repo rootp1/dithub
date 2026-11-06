@@ -1,0 +1,6 @@
+{
+  "name": "@dheet/app-worker",
+  "private": true,
+  "type": "module",
+  "dependencies": {}
+}

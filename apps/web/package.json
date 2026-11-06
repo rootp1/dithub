@@ -1,0 +1,6 @@
+{
+  "name": "@dheet/app-web",
+  "private": true,
+  "type": "module",
+  "dependencies": {}
+}

@@ -1,0 +1,13 @@
+node_modules
+**/node_modules
+.data
+demo-run
+ensv2-env
+docs
+.env
+.env.app
+infra/.env
+**/dist
+packages/contracts/out
+packages/contracts/cache
+.git

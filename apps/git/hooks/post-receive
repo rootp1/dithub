@@ -1,0 +1,13 @@
+#!/usr/bin/env bun
+// Records the push, commits and per-commit anchor rows, and queues the Arkiv + L1 sync (transactional outbox).
+const updates = (await Bun.stdin.text()).split('\n').filter(Boolean).map((line) => {
+  const [oldOid, newOid, ref] = line.split(' ')
+  return { oldOid, newOid, ref }
+})
+const res = await fetch(`${process.env.DHEET_INTERNAL_URL}/internal/post-receive`, {
+  method: 'POST',
+  headers: { 'content-type': 'application/json', authorization: `Bearer ${process.env.DHEET_INTERNAL_TOKEN}` },
+  body: JSON.stringify({ repoId: process.env.DHEET_REPO_ID, userId: process.env.DHEET_USER_ID, updates }),
+}).catch((e) => { console.error(`dheet: could not record push: ${e}`); return null })
+if (res?.ok) console.error('dheet: push recorded, syncing to Arkiv and L1 in the background')
+else console.error('dheet: warning: push stored but not recorded; an admin can reconcile')

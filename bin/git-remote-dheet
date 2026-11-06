@@ -1,0 +1,2 @@
+#!/usr/bin/env bun
+import '../packages/remote-helper/src/index.ts'

@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="description" content="Local-first Dheet repository explorer">
+    <title>Dheet Explorer</title>
+    <link rel="stylesheet" href="/style.css">
+  </head>
+  <body>
+    <header><a href="/" class="brand">dheet<span>/explorer</span></a><div id="status">checking index</div></header>
+    <main>
+      <section class="hero"><p class="eyebrow">VERIFIABLE GIT, WITHOUT A HOST</p><h1>Repositories are evidence,<br>not promises.</h1><p>Inspect locally indexed manifests, refs, object roots, and signed collaboration records.</p></section>
+      <section><div class="section-title"><h2>Repositories</h2><span id="count">0 indexed</span></div><div id="repos" class="grid" aria-live="polite"></div></section>
+      <section id="detail" class="detail" hidden></section>
+    </main>
+    <footer>Local-first · content-addressed · Ethereum anchored</footer>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

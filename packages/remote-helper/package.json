@@ -1,0 +1,12 @@
+{
+  "name": "@dheet/remote-helper",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "git-remote-dheet": "./src/index.ts"
+  },
+  "dependencies": {
+    "@dheet/sdk": "workspace:*"
+  }
+}

@@ -1,0 +1,44 @@
+name: dheet-prod
+x-app: &app
+  build: { context: .., dockerfile: Dockerfile }
+  env_file: [prod.env]
+  restart: unless-stopped
+  depends_on: { postgres: { condition: service_healthy } }
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: ["ALL"]
+services:
+  postgres:
+    image: postgres:16-alpine
+    env_file: [prod.env]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    deploy: { resources: { limits: { memory: 1g } } }
+  api:
+    <<: *app
+    command: ["sh", "-c", "bun apps/api/src/migrate.ts && exec bun apps/api/src/index.ts"]
+    volumes: ["repos:/data/repos"]
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://127.0.0.1:3000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    deploy: { resources: { limits: { memory: 1g } } }
+  worker:
+    <<: *app
+    command: ["bun", "apps/worker/src/index.ts"]
+    volumes: ["repos:/data/repos:ro", "workerdata:/data/worker"]
+    depends_on: { api: { condition: service_healthy } }
+    deploy: { resources: { limits: { memory: 768m } } }
+  caddy:
+    image: caddy:2-alpine
+    env_file: [prod.env]
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes: ["./Caddyfile:/etc/caddy/Caddyfile:ro", "caddydata:/data", "caddyconfig:/config"]
+    depends_on: { api: { condition: service_healthy } }
+    restart: unless-stopped
+volumes: { pgdata: {}, repos: {}, workerdata: {}, caddydata: {}, caddyconfig: {} }

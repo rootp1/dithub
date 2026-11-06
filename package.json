@@ -1,0 +1,39 @@
+{
+  "name": "dheet",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.4.4",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "bun run build:sdk && bun run build:cli && bun run build:remote && bun run build:indexer && bun run build:web",
+    "build:sdk": "bun build packages/sdk/src/index.ts --outdir packages/sdk/dist --target node",
+    "build:cli": "bun build packages/cli/src/index.ts --outfile packages/cli/dist/dheet.mjs --target node",
+    "build:remote": "bun build packages/remote-helper/src/index.ts --outfile packages/remote-helper/dist/git-remote-dheet.mjs --target node",
+    "build:indexer": "bun build packages/indexer/src/index.ts --outfile packages/indexer/dist/index.mjs --target bun",
+    "build:web": "bun packages/web/build.ts",
+    "indexer": "bun packages/indexer/src/index.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test packages/sdk/test packages/e2e",
+    "test:contracts": "forge test --root packages/contracts",
+    "check": "bun run typecheck && bun run test && bun run test:contracts && bun run build",
+    "api": "bun apps/api/src/index.ts",
+    "worker": "bun apps/worker/src/index.ts",
+    "build:app": "bun apps/web/build.ts"
+  },
+  "dependencies": {
+    "@arkiv-network/sdk": "1.0.1",
+    "@noble/ciphers": "2.0.1",
+    "@noble/hashes": "2.0.1",
+    "viem": "2.52.2",
+    "zod": "4.1.12"
+  },
+  "devDependencies": {
+    "@types/bun": "1.3.14",
+    "@types/node": "24.10.0",
+    "typescript": "5.9.3"
+  }
+}
