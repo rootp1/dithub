@@ -1,4 +1,19 @@
 {
   "chainId": 8453,
-  "contracts": {}
+  "deployedAt": "2026-11-07",
+  "owner": "0xe5F2164bD59ba9F19fC76F1Aa1E55199a159A16b",
+  "relayer": "0x7e290CA88091C8635cC78fE58bB1f6e1361b097c",
+  "note": "Chainlink CRE attestations (DeployAttestations) are not deployed on Base yet.",
+  "contracts": {
+    "DeployRegistry": {
+      "address": "0x9caa2fEB7880Bb81b7A3C3324c22C3293c65655e",
+      "txHash": "0x174e0abd2654d8f1f301c517be6c2d3775eb738a0580478a0198de7906c026ad",
+      "deployBlock": 54011806
+    },
+    "RefRegistry": {
+      "address": "0x458d41E371141655c5b04618875aF22F83809BC9",
+      "txHash": "0xe954852fd42e8e2f5042da3a078ad079d3d38fc10f5cf6cd9945a06540930e06",
+      "deployBlock": 54011817
+    }
+  }
 }
