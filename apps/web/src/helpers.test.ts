@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test'
-import { countdown, esc, isTxHash, parseDiff, parsePaths, renderDiff } from './helpers.ts'
+import { avatarHtml, avatarHue, countdown, esc, isPlaceholderLogin, isTxHash, parseDiff, parsePaths, renderDiff, usernameProblem } from './helpers.ts'
 
 test('esc escapes all html metacharacters', () => {
   expect(esc(`<img src=x onerror="a('b')">&`)).toBe('&lt;img src=x onerror=&quot;a(&#39;b&#39;)&quot;&gt;&amp;')
@@ -39,4 +39,31 @@ test('renderDiff escapes content', () => {
   expect(h).toContain('&lt;script&gt;')
   expect(renderDiff(parseDiff('diff --git a/"><img onerror=1> b/"><img onerror=1>\n'))).not.toContain('<img')
   expect(parseDiff('')).toEqual([])
+})
+
+test('usernameProblem mirrors the API rule and refuses route names', () => {
+  expect(usernameProblem('arnav-dev')).toBeNull()
+  expect(usernameProblem('a')).toBeNull()
+  expect(usernameProblem('')).not.toBeNull()
+  expect(usernameProblem('Arnav')).toMatch(/lowercase/)
+  expect(usernameProblem('-bad')).not.toBeNull()
+  expect(usernameProblem('bad-')).not.toBeNull()
+  expect(usernameProblem('has space')).not.toBeNull()
+  expect(usernameProblem('a'.repeat(40))).not.toBeNull()
+  expect(usernameProblem('a'.repeat(39))).toBeNull()
+  expect(usernameProblem('docs')).toMatch(/reserved/)
+  expect(usernameProblem('settings')).toMatch(/reserved/)
+})
+test('isPlaceholderLogin detects the auto-created name only', () => {
+  const w = '0x1A2b3C4d5E6f708192a3B4c5D6e7F8091a2B3c4D'
+  expect(isPlaceholderLogin('u-1a2b3c4d', w)).toBe(true)
+  expect(isPlaceholderLogin('arnav', w)).toBe(false)
+  expect(isPlaceholderLogin('u-1a2b3c4d', null)).toBe(false)
+})
+test('avatarHue is stable and in range; avatarHtml escapes', () => {
+  expect(avatarHue('arnav')).toBe(avatarHue('arnav'))
+  expect(avatarHue('arnav')).toBeGreaterThanOrEqual(0)
+  expect(avatarHue('arnav')).toBeLessThan(360)
+  expect(avatarHtml('<script>')).not.toContain('<script>')
+  expect(avatarHtml('')).toContain('>?<')
 })

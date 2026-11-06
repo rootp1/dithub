@@ -2,7 +2,7 @@ export {}
 interface Eth { request(a: { method: string; params?: unknown[] }): Promise<unknown> }
 const eth = (window as unknown as { ethereum?: Eth }).ethereum
 const app = document.getElementById('app')!, nav = document.getElementById('nav')!
-import { esc, short, ago, etherscanTx, isTxHash, parsePaths, countdown, parseDiff, renderDiff } from './helpers.ts'
+import { esc, short, ago, etherscanTx, isTxHash, parsePaths, countdown, parseDiff, renderDiff, avatarHtml, isPlaceholderLogin, usernameProblem, RESERVED_LOGINS } from './helpers.ts'
 import { ATTESTATIONS, REGISTRY, SEL_LATEST_ATTESTATION, SEL_LATEST_RELEASE, bundleHashOf, decodeLatestAttestation, decodeLatestRelease, ethCall, evaluate, sha256Hex, type BuildJson, type Check, type OnchainAttestation, type OnchainRelease } from './verify.ts'
 import { NETWORK, explorerTxFor as etherscan } from './network.ts'
 
@@ -22,6 +22,27 @@ const $ = (id: string) => document.getElementById(id)!
 const say = (id: string, msg: string, bad = true) => { const e = $(id); e.textContent = msg; e.className = bad ? 'err' : 'muted' }
 const nav2 = (path: string) => { history.pushState({}, '', path); render() }
 
+// ---------------------------------------------------------------- toasts
+/** Short, non-blocking feedback. Enter/exit are CSS transitions (interruptible); errors linger longer than confirmations. */
+function toast(msg: string, kind: 'ok' | 'err' = 'ok') {
+  let box = document.getElementById('toasts')
+  if (!box) {
+    box = document.createElement('div'); box.id = 'toasts'
+    box.setAttribute('role', 'status'); box.setAttribute('aria-live', 'polite')
+    document.body.appendChild(box)
+  }
+  const t = document.createElement('div')
+  t.className = `toast ${kind}`; t.textContent = msg
+  box.appendChild(t)
+  const close = () => { t.classList.add('out'); setTimeout(() => t.remove(), 160) }
+  t.addEventListener('click', close)
+  setTimeout(close, kind === 'err' ? 6500 : 3200)
+}
+const copyText = async (value: string, what: string) => {
+  try { await navigator.clipboard.writeText(value); toast(`${what} copied`) } catch { toast('Copy failed. Select the text and copy it manually.', 'err') }
+}
+
+// ---------------------------------------------------------------- wallet connect
 /** Ask the wallet to show its account picker every time: otherwise wallets silently reuse the account last connected to this site. */
 async function pickAccount(): Promise<string> {
   try {
@@ -36,12 +57,18 @@ async function pickAccount(): Promise<string> {
   return new Promise<string>((resolve, reject) => {
     const box = document.createElement('div')
     box.className = 'account-chooser'
-    box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', 'Choose a wallet account')
-    box.innerHTML = `<div class="card"><h2>Sign in with which account?</h2><div class="list">${accounts.map((a, i) => `<div><button class="ghost mono" data-i="${i}">${esc(a)}</button></div>`).join('')}</div><p><button id="acct-cancel" class="ghost">Cancel</button></p></div>`
+    box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-labelledby', 'acct-title')
+    box.innerHTML = `<div class="card"><h2 id="acct-title">Sign in with which account?</h2><p class="muted">Your wallet shared more than one account. Pick the one you want to use on Dithub.</p>
+      <div class="acct-list">${accounts.map((a, i) => `<button class="ghost mono" data-i="${i}">${avatarHtml(a.slice(2), 'sm')}<span>${esc(a)}</span></button>`).join('')}</div>
+      <p class="acct-actions"><button id="acct-cancel" class="ghost">Cancel</button></p></div>`
     document.body.appendChild(box)
-    const done = () => box.remove()
+    const onKey = (ev: KeyboardEvent) => { if (ev.key === 'Escape') cancel() }
+    const done = () => { document.removeEventListener('keydown', onKey); box.remove() }
+    const cancel = () => { done(); reject(new Error('Sign-in cancelled.')) }
+    document.addEventListener('keydown', onKey)
+    box.addEventListener('pointerdown', (ev) => { if (ev.target === box) cancel() })
     box.querySelectorAll<HTMLButtonElement>('[data-i]').forEach((b) => { b.onclick = () => { done(); resolve(accounts[Number(b.dataset.i)]!) } })
-    box.querySelector<HTMLButtonElement>('#acct-cancel')!.onclick = () => { done(); reject(new Error('Sign-in cancelled.')) }
+    box.querySelector<HTMLButtonElement>('#acct-cancel')!.onclick = cancel
     box.querySelector<HTMLButtonElement>('[data-i]')?.focus()
   })
 }
@@ -54,26 +81,87 @@ async function connect() {
   const message = `${location.host} wants you to sign in with your Ethereum account:\n${address}\n\nSign in to Dithub\n\nURI: ${location.origin}\nVersion: 1\nChain ID: ${NETWORK.chainId}\nNonce: ${nonce}\nIssued At: ${issued}\nExpiration Time: ${expires}`
   const signature = (await eth.request({ method: 'personal_sign', params: [message, address] })) as string
   const r = await api<{ user: typeof me }>('/api/auth/verify', { method: 'POST', body: JSON.stringify({ message, signature }) })
-  me = r.user; render()
+  me = r.user
+  // Straight to the profile: first-timers pick their username there, returning users land on their own page.
+  history.pushState({}, '', `/${me!.login}`); render()
 }
 
+let connecting = false
+/** Every "Connect wallet" button (nav, hero, empty states) shares this: one flow, one busy state, errors as toasts. */
+async function startConnect() {
+  if (connecting) return
+  connecting = true
+  const buttons = [...document.querySelectorAll<HTMLButtonElement>('[data-connect]')]
+  buttons.forEach((b) => { b.dataset.label = b.innerHTML; b.disabled = true; b.innerHTML = '<span class="spinner sm" aria-hidden="true"></span>Connecting…' })
+  try { await connect() }
+  catch (e) {
+    toast((e as Error).message, 'err')
+    buttons.forEach((b) => { if (b.isConnected) { b.disabled = false; b.innerHTML = b.dataset.label ?? 'Connect wallet' } })
+  } finally { connecting = false }
+}
+const wireConnect = () => document.querySelectorAll<HTMLButtonElement>('[data-connect]').forEach((b) => { b.onclick = startConnect })
+const connectButton = (label = 'Connect wallet', cls = '') => `<button data-connect class="${cls}">${esc(label)}</button>`
+
+async function signOut() {
+  await api('/api/auth/logout', { method: 'POST' }).catch(() => {})
+  me = null; history.pushState({}, '', '/'); render()
+}
+
+// ---------------------------------------------------------------- navigation
+function closeMenu(refocus = false) {
+  const m = document.getElementById('umenu'), t = document.getElementById('um')
+  if (!m || m.hidden) return
+  m.hidden = true; t?.setAttribute('aria-expanded', 'false')
+  if (refocus) t?.focus()
+}
+function toggleMenu() {
+  const m = document.getElementById('umenu'), t = document.getElementById('um')
+  if (!m || !t) return
+  if (!m.hidden) return closeMenu(true)
+  m.hidden = false; t.setAttribute('aria-expanded', 'true')
+  m.querySelector<HTMLElement>('[role="menuitem"]')?.focus()
+}
+document.addEventListener('pointerdown', (e) => {
+  const t = e.target as HTMLElement
+  if (!t.closest('#um') && !t.closest('#umenu')) closeMenu()
+})
+document.addEventListener('keydown', (e) => {
+  const m = document.getElementById('umenu')
+  if (!m || m.hidden) return
+  if (e.key === 'Escape') { e.preventDefault(); closeMenu(true) }
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault()
+    const items = [...m.querySelectorAll<HTMLElement>('[role="menuitem"]')], i = items.indexOf(document.activeElement as HTMLElement)
+    items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus()
+  }
+})
+
+const NON_REPO_SECTIONS = ['new', 'deployments', 'sessions', 'settings', 'orgs']
 function renderNav() {
   const path = location.pathname
-  const section = path.split('/').filter(Boolean)[0]
-  const inRepository = !section || !['new', 'deployments', 'sessions', 'settings', 'orgs'].includes(section)
+  const parts = path.split('/').filter(Boolean)
+  const inRepository = parts.length === 0 || (parts.length >= 2 && !NON_REPO_SECTIONS.includes(parts[0]!))
   const link = (href: string, label: string, exact = false) => {
     const current = href === '/' ? inRepository : exact ? path === href : path === href || path.startsWith(`${href}/`)
     return `<a class="nav-link${current ? ' current' : ''}" href="${href}"${current ? ' aria-current="page"' : ''}>${label}</a>`
   }
-  const avatar = esc((me?.login || '?').slice(0, 1).toUpperCase())
+  const onProfile = !!me && path === '/' + me.login
   nav.innerHTML = me
     ? `<div class="nav-pages">${link('/', 'Repositories', true)}${link('/deployments', 'Deployments')}${link('/sessions', 'Sessions')}</div>
-      <div class="nav-actions"><a class="nav-link hide-compact" href="/orgs/new">New organisation</a><a class="btn nav-create" href="/new">New repository</a>
-      <a class="user-link${path === '/settings' ? ' current' : ''}" href="/settings"${path === '/settings' ? ' aria-current="page"' : ''}><span class="avatar" aria-hidden="true">${avatar}</span><span class="user-name">${esc(me.login)}</span></a>
-      <button class="icon-button" id="out" title="Sign out" aria-label="Sign out"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 2.5h-3v11h3M9.5 5l3 3-3 3M12.5 8h-7"/></svg></button></div>`
-    : `<div class="nav-pages">${link('/', 'Repositories', true)}${link('/deployments', 'Deployments')}</div><div class="nav-actions"><button id="in">Connect wallet</button></div>`
-  document.getElementById('in')?.addEventListener('click', () => connect().catch((e) => alert(e.message)))
-  document.getElementById('out')?.addEventListener('click', async () => { await api('/api/auth/logout', { method: 'POST' }); me = null; render() })
+      <div class="nav-actions"><a class="nav-link hide-compact" href="/orgs/new">New organisation</a><a class="btn nav-create" href="/new" aria-label="New repository"><span>New repository</span></a>
+      <div class="menu-wrap"><button class="user-trigger${onProfile || path === '/settings' ? ' current' : ''}" id="um" aria-haspopup="menu" aria-expanded="false" aria-controls="umenu" aria-label="Account menu for ${esc(me.login)}">${avatarHtml(me.login, 'sm')}<span class="user-name">${esc(me.login)}</span><svg class="caret" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6.5l4 4 4-4"/></svg></button>
+      <div class="menu" id="umenu" role="menu" aria-labelledby="um" hidden>
+        <div class="menu-head"><span class="muted">Signed in as</span><b>${esc(me.login)}</b>${me.wallet ? `<span class="mono muted">${esc(short(me.wallet))}</span>` : ''}</div>
+        <a role="menuitem" href="/${esc(me.login)}">Your profile</a><a role="menuitem" href="/new">New repository</a><a role="menuitem" href="/sessions">Your sessions</a><a role="menuitem" href="/settings">Settings</a>
+        <hr><button role="menuitem" class="menu-item" id="out">Sign out</button></div></div></div>`
+    : `<div class="nav-pages">${link('/', 'Repositories', true)}${link('/deployments', 'Deployments')}</div><div class="nav-actions">${connectButton()}</div>`
+  document.getElementById('um')?.addEventListener('click', toggleMenu)
+  document.getElementById('out')?.addEventListener('click', signOut)
+  // Until the first-time user renames their auto-generated login, nudge them from every page except the profile itself.
+  const notice = document.getElementById('notice')
+  if (notice) notice.innerHTML = me && isPlaceholderLogin(me.login, me.wallet) && !onProfile
+    ? `<div class="notice"><div class="notice-inner"><span><b>Finish setting up your account.</b> Choose a username for your repositories.</span><a class="btn" href="/${esc(me.login)}">Choose username</a></div></div>` : ''
+  wireConnect()
 }
 
 type OrgSummary = { login: string; visibility: string; role: string; members: number; repos: number }
@@ -102,31 +190,44 @@ const icon = (name: 'repo' | 'code' | 'commit' | 'issue' | 'pull' | 'session' | 
 
 function orgsColumn(orgs: OrgSummary[] | null): string {
   const head = `<div class="side-head"><h2 id="orgs-heading">Organisations</h2>${me ? '<a class="side-link" href="/orgs/new">New</a>' : ''}</div>`
-  if (orgs === null) return `${head}<div class="card side-empty"><p class="muted">Connect your wallet to see your organisations.</p></div>`
+  if (orgs === null) return `${head}<div class="card side-empty"><p class="muted">Connect your wallet to see your organisations.</p>${connectButton('Connect wallet', 'secondary')}</div>`
   if (orgs.length === 0) return `${head}<div class="card side-empty"><p class="muted">You are not in any organisations yet.</p><a class="btn" href="/orgs/new">Create organisation</a></div>`
   return `${head}<div class="card list org-list">${orgs.map((o) => `
-    <div class="org-row"><div class="org-avatar" aria-hidden="true">${esc(o.login.slice(0, 1).toUpperCase())}</div>
+    <div class="org-row">${avatarHtml(o.login, 'md')}
     <div class="grow"><a href="/orgs/${esc(o.login)}"><b>${esc(o.login)}</b></a>
     <div class="org-meta"><span class="chip">${esc(o.visibility)}</span><span class="chip ${o.role === 'owner' ? 'ok' : ''}">${esc(o.role)}</span></div>
     <div class="muted org-counts">${plural(o.members, 'member')} · ${plural(o.repos, 'repo')}</div></div></div>`).join('')}</div>`
 }
+
+const repoRow = (r: any) => `
+    <div class="repo-row">${avatarHtml(r.owner, 'md')}<div class="grow"><div class="repo-title"><a href="/${esc(r.owner)}/${esc(r.name)}"><b>${esc(r.owner)}/${esc(r.name)}</b></a>
+    <span class="chip">${esc(r.visibility)}</span></div><div class="muted repo-description">${esc(r.description ?? 'No description provided.')}</div>
+    <div class="muted mono repo-id">${short(r.repoId)}</div></div><span class="row-arrow" aria-hidden="true">›</span></div>`
+
+const heroHtml = () => `<section class="hero" aria-labelledby="hero-title">
+    <p class="eyebrow">Wallet-native code hosting</p>
+    <h1 id="hero-title">Git hosting with <span>history you can verify.</span></h1>
+    <p class="hero-lede">Sign in with your wallet, push with git, and let every release be checked against the chain. No passwords, no trust-me deploys.</p>
+    <div class="hero-actions">${connectButton('Connect wallet', 'hero-cta')}<a class="btn secondary" href="/deployments">Verify a release</a></div>
+    <ul class="hero-points">
+      <li><b>Anchored history</b><span>Commits are anchored to ${esc(NETWORK.label)}, so past work cannot be quietly rewritten.</span></li>
+      <li><b>Verifiable access</b><span>Organisation role changes are hash-chained and mirrored to Arkiv.</span></li>
+      <li><b>Scoped sessions</b><span>Give a contractor time-boxed, read-only access to one task, nothing more.</span></li>
+    </ul></section>`
 
 async function home() {
   const [{ repos }, orgs] = await Promise.all([
     api<{ repos: any[] }>('/api/repos'),
     me ? api<{ orgs: OrgSummary[] }>('/api/me/orgs').then((r) => r.orgs).catch(() => [] as OrgSummary[]) : Promise.resolve(null),
   ])
-  app.innerHTML = `<header class="page-heading"><div><p class="eyebrow">Workspace</p><h1>Repositories</h1><p class="page-description">Browse code, collaborate, and verify every release from one place.</p></div>${me ? '<a class="btn" href="/new">New repository</a>' : ''}</header>
+  app.innerHTML = `${me ? '' : heroHtml()}<header class="page-heading"><div><p class="eyebrow">${me ? 'Dashboard' : 'Explore'}</p><h1>Repositories</h1><p class="page-description">${me ? 'Your repositories and the ones shared with you.' : 'Browse public code and verify every release from one place.'}</p></div>${me ? '<a class="btn" href="/new">New repository</a>' : ''}</header>
     <div class="home-grid"><section class="home-main" aria-label="Repositories">
-    <div class="card list repo-list">${repos.map((r) => `
-    <div class="repo-row"><div class="repo-icon" aria-hidden="true">${icon('repo')}</div><div class="grow"><div class="repo-title"><a href="/${esc(r.owner)}/${esc(r.name)}"><b>${esc(r.owner)}/${esc(r.name)}</b></a>
-    <span class="chip">${esc(r.visibility)}</span></div><div class="muted repo-description">${esc(r.description ?? 'No description provided.')}</div>
-    <div class="muted mono repo-id">${short(r.repoId)}</div></div><span class="row-arrow" aria-hidden="true">›</span></div>`).join('') || `<div class="empty-state"><div class="empty-icon" aria-hidden="true">${icon('repo')}</div><h2>No repositories yet</h2><p class="muted">${me ? 'Create a repository to start collaborating.' : 'Connect your wallet to create your first repository.'}</p>${me ? '<a class="btn" href="/new">Create repository</a>' : ''}</div>`}</div></section>
+    <div class="card list repo-list">${repos.map(repoRow).join('') || `<div class="empty-state"><div class="empty-icon" aria-hidden="true">${icon('repo')}</div><h2>No repositories yet</h2><p class="muted">${me ? 'Create a repository to start collaborating.' : 'Connect your wallet to create your first repository.'}</p>${me ? '<a class="btn" href="/new">Create repository</a>' : connectButton()}</div>`}</div></section>
     <aside class="home-side" aria-labelledby="orgs-heading">${orgsColumn(orgs)}</aside></div>`
 }
 
 function newRepo() {
-  if (!me) { app.innerHTML = '<div class="card">Connect your wallet to create a repository.</div>'; return }
+  if (!me) { app.innerHTML = gate('Create a repository', 'Connect your wallet to create a repository.'); return }
   app.innerHTML = `<header class="page-heading"><div><p class="eyebrow">New repository</p><h1>Create a repository</h1><p class="page-description">A repository contains your code, issues, pull requests, and verifiable history.</p></div></header>
     <form class="card form-card" id="f"><div class="form-section"><div class="row repo-name-fields">
     ${field('org', 'Owner', '<input id="org" placeholder="organisation (optional)" autocomplete="off">')}<span class="path-divider" aria-hidden="true">/</span>${field('name', 'Repository name', '<input id="name" placeholder="repo-name" required class="grow" autocomplete="off">')}</div>
@@ -144,15 +245,131 @@ function newRepo() {
   })
 }
 
+// ---------------------------------------------------------------- profile + username
+/** Set right after a first-time user saves their username, so their profile shows a one-off "what next" card. */
+let justNamed = false
+
+function usernameCard(current: string, onboarding: boolean) {
+  const host = esc(location.host)
+  return `<form class="card form-card name-card${onboarding ? ' welcome' : ''}" id="nf" novalidate aria-labelledby="nf-title"${onboarding ? '' : ' hidden'}>
+    <div class="form-section">
+      ${onboarding ? '<p class="eyebrow">Welcome to Dithub</p>' : ''}
+      <h2 id="nf-title">${onboarding ? 'Choose your username' : 'Change username'}</h2>
+      <p class="muted">${onboarding ? `Your wallet is connected. This is the name that appears on your repositories, like <code>${host}/you/project</code>. You can change it later.` : 'Repositories you own move to the new name. Existing clone URLs and links that use the old name will stop working.'}</p>
+      <div class="field"><label for="un">Username</label>
+        <div class="input-prefix"><span aria-hidden="true">${host}/</span><input id="un" name="username" value="${onboarding ? '' : esc(current)}" placeholder="your-name" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" maxlength="39" enterkeyhint="done" aria-describedby="un-hint" aria-invalid="false" required></div>
+        <p id="un-hint" class="hint" role="status"></p></div>
+    </div>
+    <div class="form-actions"><button id="un-save" disabled>${onboarding ? 'Continue' : 'Save username'}</button>${onboarding ? '<a class="btn secondary" href="/">Skip for now</a>' : '<button type="button" class="ghost" id="un-cancel">Cancel</button>'}</div></form>`
+}
+
+function wireUsername(current: string, onboarding: boolean) {
+  const form = $('nf') as HTMLFormElement, input = $('un') as HTMLInputElement, hint = $('un-hint'), save = $('un-save') as HTMLButtonElement
+  let serverErr = ''
+  const check = () => {
+    const v = input.value.trim(), problem = v ? usernameProblem(v) : null
+    let msg = '', cls = 'hint', ok = false
+    if (serverErr) { msg = serverErr; cls = 'hint err' }
+    else if (!v) msg = onboarding ? 'Lowercase letters, numbers and hyphens, up to 39 characters.' : ''
+    else if (problem) { msg = problem; cls = 'hint err' }
+    else if (v === current) msg = 'This is your current username.'
+    else { msg = 'Looks good. Availability is checked when you save.'; cls = 'hint ok-t'; ok = true }
+    hint.textContent = msg; hint.className = cls
+    input.setAttribute('aria-invalid', String(cls.includes('err')))
+    save.disabled = !ok
+  }
+  input.addEventListener('input', () => {
+    serverErr = ''
+    if (/[A-Z]/.test(input.value)) { const pos = input.selectionStart; input.value = input.value.toLowerCase(); if (pos != null) input.setSelectionRange(pos, pos) }
+    check()
+  })
+  input.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !onboarding) $('un-cancel').click() })
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault()
+    if (save.disabled) return
+    const v = input.value.trim()
+    save.disabled = true; save.textContent = 'Saving…'
+    try {
+      const r = await api<{ login: string }>('/api/me', { method: 'PATCH', body: JSON.stringify({ login: v }) })
+      me!.login = r.login; justNamed = onboarding
+      toast('Username saved')
+      history.replaceState({}, '', '/' + r.login); render()
+    } catch (err) {
+      const er = err as ApiError
+      serverErr = er.status === 409 ? `"${v}" is already taken. Try another.` : er.message
+      save.textContent = onboarding ? 'Continue' : 'Save username'; check()
+    }
+  })
+  check()
+}
+
+const copyIcon = '<svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="5.5" y="5.5" width="8" height="8" rx="1.5"/><path d="M10.5 5.5v-2a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h2"/></svg>'
+
+async function profilePage(login: string) {
+  const isMe = !!me && me.login === login
+  const [{ repos }, orgs] = await Promise.all([
+    api<{ repos: any[] }>('/api/repos'),
+    isMe ? api<{ orgs: OrgSummary[] }>('/api/me/orgs').then((r) => r.orgs).catch(() => [] as OrgSummary[]) : Promise.resolve([] as OrgSummary[]),
+  ])
+  const mine = repos.filter((r) => String(r.owner).toLowerCase() === login.toLowerCase())
+  const onboarding = isMe && isPlaceholderLogin(me!.login, me!.wallet)
+  const celebrate = isMe && justNamed
+  justNamed = false
+  document.title = `${login} · Dithub`
+
+  const side = `<aside class="profile-side" aria-label="Profile summary">
+    ${avatarHtml(login, 'xl')}
+    <h1 class="profile-name">${esc(login)}</h1>
+    ${isMe ? `<p class="profile-sub muted">${onboarding ? 'Auto-generated username' : 'Signed in with your wallet'}</p>` : ''}
+    ${isMe && me!.wallet ? `<button class="ghost wallet-pill mono" id="copy-wallet" title="Copy wallet address" aria-label="Copy wallet address ${esc(me!.wallet)}">${esc(short(me!.wallet))}${copyIcon}</button>` : ''}
+    ${isMe && !onboarding ? '<button class="ghost block" id="edit-name">Change username</button>' : ''}
+    <dl class="profile-stats"><div><dt>Repositories</dt><dd>${mine.length}</dd></div>${isMe ? `<div><dt>Organisations</dt><dd>${orgs.length}</dd></div>` : ''}</dl>
+    ${isMe && orgs.length ? `<h2 class="side-title">Organisations</h2><div class="avatar-stack">${orgs.map((o) => `<a href="/orgs/${esc(o.login)}" title="${esc(o.login)}" aria-label="${esc(o.login)}">${avatarHtml(o.login, 'md')}</a>`).join('')}</div>` : ''}
+  </aside>`
+  const nextSteps = celebrate ? `<section class="card next-steps" aria-labelledby="ns-title"><h2 id="ns-title">You are all set, ${esc(login)}</h2><p class="muted">A few good places to start:</p>
+    <div class="steps-list"><a href="/new"><b>Create a repository</b><span class="muted">Start a project under your new name.</span></a>
+    <a href="/settings"><b>Create an access token</b><span class="muted">Use it as the password for git over HTTPS.</span></a>
+    <a href="/settings/device-keys"><b>Register a device key</b><span class="muted">Let your machine read your private repositories.</span></a></div></section>` : ''
+  const empty = `<div class="empty-state"><div class="empty-icon" aria-hidden="true">${icon('repo')}</div><h2>${isMe ? 'No repositories yet' : 'Nothing to show'}</h2><p class="muted">${isMe ? 'Create your first repository to get started.' : 'This account has no repositories you can see.'}</p>${isMe ? '<a class="btn" href="/new">Create repository</a>' : ''}</div>`
+  app.innerHTML = `<div class="profile">${side}<section class="profile-main" aria-label="Profile">${isMe ? usernameCard(login, onboarding) : ''}${nextSteps}
+    <div class="side-head"><h2>Repositories <span class="count">${mine.length}</span></h2>${isMe && mine.length ? '<a class="side-link" href="/new">New</a>' : ''}</div>
+    <div class="card list repo-list">${mine.map(repoRow).join('') || empty}</div></section></div>`
+
+  if (!isMe) return
+  wireUsername(login, onboarding)
+  $('copy-wallet')?.addEventListener('click', () => copyText(me!.wallet!, 'Wallet address'))
+  const form = $('nf') as HTMLFormElement, input = $('un') as HTMLInputElement, edit = document.getElementById('edit-name')
+  edit?.addEventListener('click', () => { form.hidden = !form.hidden; if (!form.hidden) { input.focus(); input.select() } })
+  document.getElementById('un-cancel')?.addEventListener('click', () => { form.reset(); input.dispatchEvent(new Event('input')); form.hidden = true; edit?.focus() })
+  // Desktop only: focusing on a phone would pop the keyboard before the user has read anything.
+  if (onboarding && matchMedia('(pointer: fine)').matches) input.focus()
+}
+
 async function settings() {
-  if (!me) { app.innerHTML = '<div class="card">Connect your wallet first.</div>'; return }
-  app.innerHTML = `<h1>Account</h1><div class="card"><p>Wallet <code>${esc(me.wallet)}</code></p>
-    <div class="row"><input id="login" value="${esc(me.login)}"><button id="save">Set username</button></div><p id="m" class="muted"></p></div>
-    <div class="card"><h2>Personal access token</h2><p class="muted">Use it as the password when you <code>git push</code> over HTTPS.</p>
-    <button id="tok">Create token</button><pre id="t" hidden></pre></div>
-    <div class="card"><h2>Device keys</h2><p class="muted">Device keys receive the encryption keys of your private repositories. <a href="/settings/device-keys">Manage device keys</a></p></div>`
-  document.getElementById('save')!.onclick = async () => { try { const r = await api('/api/me', { method: 'PATCH', body: JSON.stringify({ login: (document.getElementById('login') as HTMLInputElement).value }) }); me!.login = r.login; renderNav(); document.getElementById('m')!.textContent = 'Saved.' } catch (e) { document.getElementById('m')!.textContent = (e as Error).message } }
-  document.getElementById('tok')!.onclick = async () => { const r = await api('/api/tokens', { method: 'POST', body: JSON.stringify({ name: 'web' }) }); const t = document.getElementById('t')!; t.hidden = false; t.textContent = `${r.token}\n(shown once; copy it now)` }
+  if (!me) { app.innerHTML = gate('Settings', 'Connect your wallet to manage your account.'); return }
+  document.title = 'Settings · Dithub'
+  const placeholder = isPlaceholderLogin(me.login, me.wallet)
+  app.innerHTML = `<header class="page-heading"><div><p class="eyebrow">Settings</p><h1>Account</h1><p class="page-description">How you sign in, and how the command line proves it is you.</p></div></header>
+    <div class="settings-grid">
+    <section class="card" aria-labelledby="s-id"><h2 id="s-id">Identity</h2>
+      <dl class="kv"><div><dt>Username</dt><dd><b>${esc(me.login)}</b>${placeholder ? ' <span class="chip warn">auto-generated</span>' : ''}</dd><dd class="kv-action"><a class="btn secondary" href="/${esc(me.login)}">${placeholder ? 'Choose username' : 'Change'}</a></dd></div>
+      <div><dt>Wallet</dt><dd class="mono wrap">${esc(me.wallet)}</dd><dd class="kv-action"><button class="ghost" id="cp">Copy</button></dd></div></dl></section>
+    <section class="card" aria-labelledby="s-tok"><h2 id="s-tok">Personal access token</h2><p class="muted">Use it as the password when you <code>git push</code> over HTTPS.</p>
+      <p><button id="tok">Create token</button></p>
+      <div id="tokbox" hidden><pre id="t"></pre><p class="row"><button class="ghost" id="tcopy">Copy token</button><span class="muted">Shown once. Copy it now.</span></p></div>
+      <p id="tm" class="err" role="alert"></p></section>
+    <section class="card" aria-labelledby="s-dk"><h2 id="s-dk">Device keys</h2><p class="muted">Device keys receive the encryption keys of your private repositories.</p><p><a class="btn secondary" href="/settings/device-keys">Manage device keys</a></p></section></div>`
+  $('cp').onclick = () => copyText(me!.wallet ?? '', 'Wallet address')
+  $('tok').onclick = async () => {
+    const b = $('tok') as HTMLButtonElement
+    b.disabled = true; say('tm', '', false)
+    try {
+      const r = await api<{ token: string }>('/api/tokens', { method: 'POST', body: JSON.stringify({ name: 'web' }) })
+      $('t').textContent = r.token; $('tokbox').hidden = false
+      $('tcopy').onclick = () => copyText(r.token, 'Token')
+    } catch (e) { say('tm', (e as Error).message) }
+    b.disabled = false
+  }
 }
 
 /** /settings/device-keys[?publicKey=0x..]: list registered keys; sign the statement for a new one (printed by `dit keys init`). */
@@ -183,12 +400,12 @@ async function deviceKeysPage(params: URLSearchParams) {
 }
 
 const val = (id: string) => (document.getElementById(id) as HTMLInputElement).value.trim()
-const act = (id: string, fn: () => Promise<unknown>) => { document.getElementById(id)!.onclick = async () => { try { await fn(); render() } catch (e) { alert((e as Error).message) } } }
+const act = (id: string, fn: () => Promise<unknown>) => { document.getElementById(id)!.onclick = async () => { try { await fn(); render() } catch (e) { toast((e as Error).message, 'err') } } }
 const put = (path: string, body: unknown) => api(path, { method: 'PUT', body: JSON.stringify(body) })
 const del = (path: string) => api(path, { method: 'DELETE' })
 
 function newOrg() {
-  if (!me) { app.innerHTML = '<div class="card">Connect your wallet first.</div>'; return }
+  if (!me) { app.innerHTML = gate('Create an organisation', 'Connect your wallet to create an organisation.'); return }
   app.innerHTML = `<header class="page-heading"><div><p class="eyebrow">New organisation</p><h1>Create an organisation</h1><p class="page-description">Bring repositories and collaborators together under a shared, verifiable identity.</p></div></header>
     <div class="card form-card"><div class="form-section">${field('ol', 'Organisation name', '<input id="ol" placeholder="organisation-name" class="grow" autocomplete="off">')}
     ${field('ov', 'Visibility', '<select id="ov"><option value="public">Public — role changes are verifiable</option><option value="private">Private — role changes stay off-chain</option></select>')}</div>
@@ -209,8 +426,8 @@ async function orgPage(login: string) {
       ${owner ? `<div class="row"><input id="ts" placeholder="team-slug" class="grow"><button id="addt">Create team</button></div>` : ''}</div>
     <div class="card"><h2>Role change log</h2><p class="muted mono">head ${short(log.head)} · ${log.events.length} event(s)</p><div class="list">${log.events.map((e: any) => `<div class="mono">#${e.seq} ${esc(e.action)} by ${esc(e.actor)} · hash ${short(e.hash)}
       ${e.arkivTx ? `<span class="chip ok">Arkiv ${short(e.arkivTx)}</span>` : log.verifiable ? '<span class="chip warn">pending</span>' : ''}</div>`).join('')}</div></div>`
-  document.querySelectorAll<HTMLButtonElement>('[data-role]').forEach((b) => { b.onclick = async () => { const [u, r] = b.dataset.role!.split('|'); try { await put(`/api/orgs/${login}/members/${u}`, { role: r }); render() } catch (e) { alert((e as Error).message) } } })
-  document.querySelectorAll<HTMLButtonElement>('[data-rm]').forEach((b) => { b.onclick = async () => { try { await del(`/api/orgs/${login}/members/${b.dataset.rm}`); render() } catch (e) { alert((e as Error).message) } } })
+  document.querySelectorAll<HTMLButtonElement>('[data-role]').forEach((b) => { b.onclick = async () => { const [u, r] = b.dataset.role!.split('|'); try { await put(`/api/orgs/${login}/members/${u}`, { role: r }); render() } catch (e) { toast((e as Error).message, 'err') } } })
+  document.querySelectorAll<HTMLButtonElement>('[data-rm]').forEach((b) => { b.onclick = async () => { try { await del(`/api/orgs/${login}/members/${b.dataset.rm}`); render() } catch (e) { toast((e as Error).message, 'err') } } })
   if (owner) {
     act('addm', () => put(`/api/orgs/${login}/members/${val('nm')}`, { role: (document.getElementById('nr') as HTMLSelectElement).value }))
     act('addt', () => api(`/api/orgs/${login}/teams`, { method: 'POST', body: JSON.stringify({ slug: val('ts') }) }))
@@ -223,9 +440,9 @@ async function repoSettings(owner: string, name: string) {
   try { [c, p] = await Promise.all([api(`${base}/collaborators`), api(`${base}/protections`)]) } catch (e) { return `<div class="card muted">${esc((e as Error).message)}</div>` }
   setTimeout(() => {
     act('addc', () => put(`${base}/collaborators/${val('cu')}`, { permission: (document.getElementById('cp') as HTMLSelectElement).value }))
-    document.querySelectorAll<HTMLButtonElement>('[data-rc]').forEach((b) => { b.onclick = async () => { try { await del(`${base}/collaborators/${b.dataset.rc}`); render() } catch (e) { alert((e as Error).message) } } })
+    document.querySelectorAll<HTMLButtonElement>('[data-rc]').forEach((b) => { b.onclick = async () => { try { await del(`${base}/collaborators/${b.dataset.rc}`); render() } catch (e) { toast((e as Error).message, 'err') } } })
     act('addp', () => put(`${base}/protections`, { pattern: val('pp'), requirePr: (document.getElementById('pr') as HTMLInputElement).checked }))
-    document.querySelectorAll<HTMLButtonElement>('[data-rp]').forEach((b) => { b.onclick = async () => { try { await del(`${base}/protections?pattern=${encodeURIComponent(b.dataset.rp!)}`); render() } catch (e) { alert((e as Error).message) } } })
+    document.querySelectorAll<HTMLButtonElement>('[data-rp]').forEach((b) => { b.onclick = async () => { try { await del(`${base}/protections?pattern=${encodeURIComponent(b.dataset.rp!)}`); render() } catch (e) { toast((e as Error).message, 'err') } } })
   })
   return `<div class="card"><h2>Collaborators</h2><div class="list">${c.collaborators.map((x: any) => `<div class="row"><b class="grow">${esc(x.login)}</b><span class="chip">${esc(x.permission)}</span><button class="ghost" data-rc="${esc(x.login)}">remove</button></div>`).join('') || '<p class="muted">None.</p>'}</div>
     <div class="row"><input id="cu" placeholder="username" class="grow"><select id="cp">${['read', 'triage', 'write', 'maintain', 'admin'].map((x) => `<option>${x}</option>`).join('')}</select><button id="addc">Add</button></div></div>
@@ -294,7 +511,10 @@ async function repoPage(owner: string, name: string, tab: string, params: URLSea
 type Tab = { html: string; wire?: () => void }
 const chipFor = (state: string) => `<span class="chip ${state === 'open' ? 'ok' : state === 'merged' ? 'merged' : 'warn'}">${esc(state)}</span>`
 const text = (s: unknown) => `<div class="text">${esc(s) || '<span class="muted">(empty)</span>'}</div>`
-const needSignIn = '<div class="card">Connect your wallet to do this.</div>'
+const needSignIn = `<div class="card signin-inline"><span>Connect your wallet to do this.</span>${connectButton()}</div>`
+/** Full-page prompt for screens that need a signed-in user. */
+const gate = (title: string, text: string) => `<div class="card empty-state gate"><div class="empty-icon" aria-hidden="true">${icon('repo')}</div><h2>${esc(title)}</h2><p class="muted">${esc(text)}</p>${connectButton()}</div>`
+const notFound = () => `<div class="card empty-state"><div class="empty-icon" aria-hidden="true">?</div><h2>Page not found</h2><p class="muted">That page does not exist, or you do not have access to it.</p><a class="btn" href="/">Back to repositories</a></div>`
 const labelChips = (ls: any[]) => (ls ?? []).map((l) => `<span class="chip">${esc(l.name)}</span>`).join('')
 const field = (id: string, label: string, input: string) => `<div class="field"><label for="${id}">${esc(label)}</label>${input}</div>`
 /** Run an async action from a button; show errors inline in #msgId (role=alert) instead of alert(). */
@@ -440,7 +660,7 @@ async function sessionsAdminTab(owner: string, name: string, repo: any): Promise
     wireAction('sc', 'msg', () => { const role = ($('sr') as HTMLSelectElement).value, paths = parsePaths(($('sp') as HTMLTextAreaElement).value)
       if (role !== 'maintainer' && !paths.length) throw new Error('at least one allowed path is required')
       return post(`${R}/sessions`, { issueNumber: Number(val('sn')), login: val('sl'), role, ttlMinutes: Number(val('st')) || 480, ...(paths.length ? { paths } : {}) }) })
-    document.querySelectorAll<HTMLButtonElement>('[data-revoke]').forEach((b) => { b.onclick = () => post(`/api/sessions/${encodeURIComponent(b.dataset.revoke!)}/revoke`, {}).then(render, (e) => alert(e.message)) })
+    document.querySelectorAll<HTMLButtonElement>('[data-revoke]').forEach((b) => { b.onclick = () => post(`/api/sessions/${encodeURIComponent(b.dataset.revoke!)}/revoke`, {}).then(render, (e) => toast(e.message, 'err')) })
     document.querySelectorAll<HTMLButtonElement>('[data-audit]').forEach((b) => { b.onclick = async () => {
       try { const { events } = await api(`/api/sessions/${encodeURIComponent(b.dataset.audit!)}/events`)
         $('audit').innerHTML = `<h2>Audit log</h2><div class="list">${events.map((e: any) => `<div class="mono"><span class="chip ${/denied|rejected/.test(e.kind) ? 'bad' : ''}">${esc(e.kind)}</span> ${esc(e.actor ?? '')} · ${esc(e.createdAt)} · ${esc(JSON.stringify(e.detail ?? {}).slice(0, 200))}</div>`).join('') || '<p class="muted">No events.</p>'}</div>`
@@ -599,6 +819,9 @@ async function runVerify() {
 let tick: ReturnType<typeof setInterval> | undefined
 async function render() {
   if (tick) { clearInterval(tick); tick = undefined }
+  document.title = 'Dithub'
+  lastRoute = location.pathname + location.search
+  closeMenu()
   renderNav()
   const url = new URL(location.href), parts = url.pathname.split('/').filter(Boolean)
   try {
@@ -611,12 +834,18 @@ async function render() {
     else if (parts[0] === 'deployments') await deploymentsPage()
     else if (parts[0] === 'sessions' && parts[1]) await workspacePage(parts[1])
     else if (parts[0] === 'sessions') await mySessions()
-    else if (parts.length >= 2) await repoPage(parts[0]!, parts[1]!, parts[2] ?? 'code', url.searchParams, parts[3])
-  } catch (e) { app.innerHTML = `<div class="card err">${esc((e as Error).message)}</div>` }
+    else if (parts.length >= 2) { document.title = `${parts[0]}/${parts[1]} · Dithub`; await repoPage(parts[0]!, parts[1]!, parts[2] ?? 'code', url.searchParams, parts[3]) }
+    else if (!RESERVED_LOGINS.includes(parts[0]!)) await profilePage(decodeURIComponent(parts[0]!))
+    else app.innerHTML = notFound()
+  } catch (e) { app.innerHTML = `<div class="card err" role="alert">${esc((e as Error).message)}</div>` }
+  wireConnect()
 }
 document.addEventListener('click', (e) => {
   const a = (e.target as HTMLElement).closest('a')
-  if (a && a.origin === location.origin && !a.target && a.pathname !== '#') { e.preventDefault(); history.pushState({}, '', a.href); render() }
+  if (a && a.origin === location.origin && !a.target && !a.hasAttribute('download') && !(a.hash && a.pathname === location.pathname && a.search === location.search) && !e.metaKey && !e.ctrlKey && !e.shiftKey && e.button === 0) {
+    e.preventDefault(); history.pushState({}, '', a.href); window.scrollTo(0, 0); render()
+  }
 })
-window.addEventListener('popstate', render)
+let lastRoute = location.pathname + location.search
+window.addEventListener('popstate', () => { const r = location.pathname + location.search; if (r !== lastRoute) render() })
 api<{ user: typeof me }>('/api/me').then((r) => { me = r.user }).catch(() => {}).finally(render)

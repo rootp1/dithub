@@ -46,3 +46,30 @@ export function renderDiff(files: DiffFile[]): string {
   if (!files.length) return '<p class="muted">No changes.</p>'
   return files.map((f) => `<details class="dfile"${f.lines.length > 400 ? '' : ' open'}><summary><span class="mono">${esc(f.path)}</span> <span class="add-n">+${f.additions}</span> <span class="del-n">-${f.deletions}</span></summary><pre class="diff">${f.lines.map((l) => `<span class="dl ${l.kind}">${esc(l.text) || ' '}</span>`).join('')}</pre></details>`).join('')
 }
+
+// ---------------------------------------------------------------- usernames + avatars
+/** Top-level paths owned by the app: a username here would shadow a page, so the UI refuses them. */
+export const RESERVED_LOGINS = ['new', 'deployments', 'sessions', 'settings', 'orgs', 'docs', 'api', 'git', 'internal', 'login', 'logout', 'admin', 'about', 'explore', 'build', 'static', 'assets']
+/** Same rule as PATCH /api/me (1-39 chars of a-z 0-9 -, no leading/trailing hyphen). Returns an error message, or null when fine. */
+export function usernameProblem(raw: string): string | null {
+  const v = raw.trim()
+  if (!v) return 'Choose a username.'
+  if (v.length > 39) return 'Use 39 characters or fewer.'
+  if (/[A-Z]/.test(v)) return 'Use lowercase letters only.'
+  if (!/^[a-z0-9-]+$/.test(v)) return 'Only letters, numbers and hyphens are allowed.'
+  if (v.startsWith('-') || v.endsWith('-')) return 'A username cannot start or end with a hyphen.'
+  if (RESERVED_LOGINS.includes(v)) return `"${v}" is reserved. Try another.`
+  return null
+}
+/** First sign-in creates `u-<first 8 hex of the wallet>`; until the user renames it they are still onboarding. */
+export const isPlaceholderLogin = (login: string, wallet: string | null | undefined) =>
+  !!wallet && login === `u-${wallet.slice(2, 10).toLowerCase()}`
+/** Stable 0-359 hue per name, so each person and organisation keeps the same avatar colour everywhere. */
+export function avatarHue(name: string): number {
+  let h = 2166136261
+  for (let i = 0; i < name.length; i++) { h ^= name.charCodeAt(i); h = Math.imul(h, 16777619) }
+  return (h >>> 0) % 360
+}
+/** Avatar bubble. `size` is one of the CSS size classes: sm | md | lg | xl. */
+export const avatarHtml = (name: string, size: 'sm' | 'md' | 'lg' | 'xl' = 'md') =>
+  `<span class="avatar ${size}" style="--hue:${avatarHue(name)}" aria-hidden="true">${esc((name || '?').slice(0, 1).toUpperCase())}</span>`
