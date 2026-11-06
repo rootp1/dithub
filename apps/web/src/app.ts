@@ -4,7 +4,8 @@ const eth = (window as unknown as { ethereum?: Eth }).ethereum
 const app = document.getElementById('app')!, nav = document.getElementById('nav')!
 import { esc, short, ago, etherscanTx, isTxHash, parsePaths, countdown, parseDiff, renderDiff } from './helpers.ts'
 import { ATTESTATIONS, REGISTRY, SEL_LATEST_ATTESTATION, SEL_LATEST_RELEASE, bundleHashOf, decodeLatestAttestation, decodeLatestRelease, ethCall, evaluate, sha256Hex, type BuildJson, type Check, type OnchainAttestation, type OnchainRelease } from './verify.ts'
-const etherscan = (chain: number | null, tx: string) => (chain === 11155111 ? `https://sepolia.etherscan.io/tx/${tx}` : '#')
+import { NETWORK, explorerTxFor as etherscan } from './network.ts'
+import { docsHtml } from './docs.ts'
 
 let me: { id: number; login: string; wallet: string | null } | null = null
 class ApiError extends Error { constructor(msg: string, readonly status: number, readonly body: any) { super(msg) } }
@@ -22,12 +23,36 @@ const $ = (id: string) => document.getElementById(id)!
 const say = (id: string, msg: string, bad = true) => { const e = $(id); e.textContent = msg; e.className = bad ? 'err' : 'muted' }
 const nav2 = (path: string) => { history.pushState({}, '', path); render() }
 
+/** Ask the wallet to show its account picker every time: otherwise wallets silently reuse the account last connected to this site. */
+async function pickAccount(): Promise<string> {
+  try {
+    await eth!.request({ method: 'wallet_requestPermissions', params: [{ eth_accounts: {} }] })
+  } catch (e) {
+    if ((e as { code?: number }).code === 4001) throw new Error('Wallet connection was cancelled.')
+    // Wallets without wallet_requestPermissions fall back to eth_requestAccounts below.
+  }
+  const accounts = ((await eth!.request({ method: 'eth_requestAccounts' })) as string[]).filter((a) => /^0x[0-9a-fA-F]{40}$/.test(a))
+  if (accounts.length === 0) throw new Error('No wallet account was selected.')
+  if (accounts.length === 1) return accounts[0]!
+  return new Promise<string>((resolve, reject) => {
+    const box = document.createElement('div')
+    box.className = 'account-chooser'
+    box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', 'Choose a wallet account')
+    box.innerHTML = `<div class="card"><h2>Sign in with which account?</h2><div class="list">${accounts.map((a, i) => `<div><button class="ghost mono" data-i="${i}">${esc(a)}</button></div>`).join('')}</div><p><button id="acct-cancel" class="ghost">Cancel</button></p></div>`
+    document.body.appendChild(box)
+    const done = () => box.remove()
+    box.querySelectorAll<HTMLButtonElement>('[data-i]').forEach((b) => { b.onclick = () => { done(); resolve(accounts[Number(b.dataset.i)]!) } })
+    box.querySelector<HTMLButtonElement>('#acct-cancel')!.onclick = () => { done(); reject(new Error('Sign-in cancelled.')) }
+    box.querySelector<HTMLButtonElement>('[data-i]')?.focus()
+  })
+}
+
 async function connect() {
   if (!eth) throw new Error('No wallet found. Install MetaMask or another EIP-1193 wallet.')
-  const [address] = (await eth.request({ method: 'eth_requestAccounts' })) as string[]
+  const address = await pickAccount()
   const { nonce } = await api<{ nonce: string }>('/api/auth/nonce')
   const issued = new Date().toISOString(), expires = new Date(Date.now() + 5 * 60_000).toISOString()
-  const message = `${location.host} wants you to sign in with your Ethereum account:\n${address}\n\nSign in to Dithub\n\nURI: ${location.origin}\nVersion: 1\nChain ID: 11155111\nNonce: ${nonce}\nIssued At: ${issued}\nExpiration Time: ${expires}`
+  const message = `${location.host} wants you to sign in with your Ethereum account:\n${address}\n\nSign in to Dithub\n\nURI: ${location.origin}\nVersion: 1\nChain ID: ${NETWORK.chainId}\nNonce: ${nonce}\nIssued At: ${issued}\nExpiration Time: ${expires}`
   const signature = (await eth.request({ method: 'personal_sign', params: [message, address] })) as string
   const r = await api<{ user: typeof me }>('/api/auth/verify', { method: 'POST', body: JSON.stringify({ message, signature }) })
   me = r.user; render()
@@ -36,18 +61,18 @@ async function connect() {
 function renderNav() {
   const path = location.pathname
   const section = path.split('/').filter(Boolean)[0]
-  const inRepository = !section || !['new', 'deployments', 'sessions', 'settings', 'orgs'].includes(section)
+  const inRepository = !section || !['new', 'deployments', 'sessions', 'settings', 'orgs', 'docs'].includes(section)
   const link = (href: string, label: string, exact = false) => {
     const current = href === '/' ? inRepository : exact ? path === href : path === href || path.startsWith(`${href}/`)
     return `<a class="nav-link${current ? ' current' : ''}" href="${href}"${current ? ' aria-current="page"' : ''}>${label}</a>`
   }
   const avatar = esc((me?.login || '?').slice(0, 1).toUpperCase())
   nav.innerHTML = me
-    ? `<div class="nav-pages">${link('/', 'Repositories', true)}${link('/deployments', 'Deployments')}${link('/sessions', 'Sessions')}</div>
+    ? `<div class="nav-pages">${link('/', 'Repositories', true)}${link('/deployments', 'Deployments')}${link('/sessions', 'Sessions')}${link('/docs', 'Docs', true)}</div>
       <div class="nav-actions"><a class="nav-link hide-compact" href="/orgs/new">New organisation</a><a class="btn nav-create" href="/new">New repository</a>
       <a class="user-link${path === '/settings' ? ' current' : ''}" href="/settings"${path === '/settings' ? ' aria-current="page"' : ''}><span class="avatar" aria-hidden="true">${avatar}</span><span class="user-name">${esc(me.login)}</span></a>
       <button class="icon-button" id="out" title="Sign out" aria-label="Sign out"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 2.5h-3v11h3M9.5 5l3 3-3 3M12.5 8h-7"/></svg></button></div>`
-    : `<div class="nav-pages">${link('/', 'Repositories', true)}${link('/deployments', 'Deployments')}</div><div class="nav-actions"><button id="in">Connect wallet</button></div>`
+    : `<div class="nav-pages">${link('/', 'Repositories', true)}${link('/deployments', 'Deployments')}${link('/docs', 'Docs', true)}</div><div class="nav-actions"><button id="in">Connect wallet</button></div>`
   document.getElementById('in')?.addEventListener('click', () => connect().catch((e) => alert(e.message)))
   document.getElementById('out')?.addEventListener('click', async () => { await api('/api/auth/logout', { method: 'POST' }); me = null; render() })
 }
@@ -477,7 +502,7 @@ async function deploymentsPage() {
   const badge = (d: any) => [d.publishTx || d.bundleHash ? '<span class="chip ok">published</span>' : '', d.attested ? (d.ok ? '<span class="chip ok">attested OK</span>' : '<span class="chip bad">attested MISMATCH</span>') : '<span class="chip warn">pending attestation</span>'].join('')
   const tx = (label: string, h: string | null) => (isTxHash(h) ? `<a href="${esc(etherscanTx(h))}" target="_blank" rel="noopener">${esc(label)} ${esc(short(h))}</a>` : '')
   app.innerHTML = `<h1>Deployments</h1>
-    <section class="card verify" aria-labelledby="vh"><h2 id="vh">Verify this site</h2><p>Prove the frontend you are running matches the release published on-chain. Everything below runs in your browser: it hashes the files it was served, recomputes the bundle hash, and reads the DeployRegistry on Sepolia directly over JSON-RPC.</p>
+    <section class="card verify" aria-labelledby="vh"><h2 id="vh">Verify this site</h2><p>Prove the frontend you are running matches the release published on-chain. Everything below runs in your browser: it hashes the files it was served, recomputes the bundle hash, and reads the DeployRegistry on ${NETWORK.label} directly over JSON-RPC.${ATTESTATIONS ? '' : ' Chainlink attestations are not live on this chain yet.'}</p>
       <p><button id="vb">Run verification</button></p><div id="vres" aria-live="polite"></div></section>
     <div class="card"><h2>Releases</h2><p class="muted">Data source: ${r.source === 'arkiv' ? '<span class="chip ok">Arkiv</span>' : r.source ? '<span class="chip warn">Postgres fallback (Arkiv unreachable)</span>' : '<span class="chip bad">unavailable</span>'}${r.error ? ` <span class="err">${esc(r.error)}</span>` : ''}</p>
       <div class="list">${items.map((d) => `<div><div class="row"><b>Release #${esc(d.releaseId)}</b>${badge(d)}<span class="muted">${esc(d.publishedAt ?? '')}</span></div>
@@ -500,15 +525,16 @@ async function runVerify() {
     const local = await bundleHashOf(actual)
     let chain: OnchainRelease | null = null, att: OnchainAttestation | null = null, chainErr: string | undefined
     try {
+      if (!REGISTRY) throw new Error(`no DeployRegistry on ${NETWORK.label} yet`)
       chain = decodeLatestRelease(await ethCall(REGISTRY, SEL_LATEST_RELEASE))
-      att = decodeLatestAttestation(await ethCall(ATTESTATIONS, SEL_LATEST_ATTESTATION))
+      if (ATTESTATIONS) att = decodeLatestAttestation(await ethCall(ATTESTATIONS, SEL_LATEST_ATTESTATION))
     } catch (e) { chainErr = `could not read chain: ${(e as Error).message}` }
     const apiLatest = await api('/api/deployments/latest').then((x) => x.deployment as { bundleHash: string | null }, () => null)
     const checks: Check[] = evaluate({ build, actual, local, chain, ...(chainErr ? { chainErr } : {}), api: apiLatest, att })
     const hard = checks.slice(0, 3), pass = hard.every((c) => c.status === 'pass')
     out.innerHTML = `<p class="verdict ${pass ? 'ok-t' : 'err'}"><b>${pass ? 'PASS: this site matches the published on-chain release' : 'FAIL: this site does not match the on-chain release'}</b></p>
       <ul class="checks">${checks.map((c) => `<li><span class="chip ${c.status === 'pass' ? 'ok' : c.status === 'fail' ? 'bad' : 'warn'}">${c.status === 'pass' ? 'PASS' : c.status === 'fail' ? 'FAIL' : 'INFO'}</span> ${esc(c.label)}<div class="muted mono">${esc(c.detail)}</div></li>`).join('')}</ul>
-      <p class="muted mono">local bundleHash ${esc(local)}${chain ? `<br>release #${esc(chain.id)} commit ${esc(chain.commit)}<br>url ${esc(chain.url)}` : ''}<br>registry <a href="https://sepolia.etherscan.io/address/${REGISTRY}" target="_blank" rel="noopener">${REGISTRY}</a></p>`
+      <p class="muted mono">local bundleHash ${esc(local)}${chain ? `<br>release #${esc(chain.id)} commit ${esc(chain.commit)}<br>url ${esc(chain.url)}` : ''}${REGISTRY ? `<br>registry <a href="${NETWORK.explorer}/address/${REGISTRY}" target="_blank" rel="noopener">${REGISTRY}</a>` : ''}</p>`
   } catch (e) { out.innerHTML = `<p class="err" role="alert">Verification failed to run: ${esc((e as Error).message)}</p>` }
   btn.disabled = false
 }
@@ -520,6 +546,7 @@ async function render() {
   const url = new URL(location.href), parts = url.pathname.split('/').filter(Boolean)
   try {
     if (parts.length === 0) await home()
+    else if (parts[0] === 'docs') app.innerHTML = docsHtml()
     else if (parts[0] === 'new') newRepo()
     else if (parts[0] === 'settings') await settings()
     else if (parts[0] === 'orgs' && parts[1] === 'new') newOrg()
