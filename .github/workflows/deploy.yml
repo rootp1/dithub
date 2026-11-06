@@ -94,4 +94,12 @@ jobs:
         env:
           SITE: ${{ env.SITE_URL }}
           SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
-        run: bun scripts/verify-site.ts
+        # Public RPCs sit behind load balancers whose nodes lag by a few blocks: right after publishing, one read can still see
+        # the previous release. Retry before failing; a real mismatch keeps failing on every attempt.
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if bun scripts/verify-site.ts; then exit 0; fi
+            echo "verify attempt $attempt failed; retrying in 20s"
+            sleep 20
+          done
+          exit 1
