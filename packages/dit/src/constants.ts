@@ -22,4 +22,4 @@ export const SEL = {
 
 export const EXIT = { ok: 0, error: 1, usage: 2 } as const
 
-export const SOURCE_REPO = 'https://github.com/rootp1/dithub.git'
+export const SOURCE_REPO = 'https://github.com/rootp1/dithub-base.git'

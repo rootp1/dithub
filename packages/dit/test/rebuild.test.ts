@@ -45,7 +45,7 @@ describe('rebuild: pure parts', () => {
     expect(() => parseRebuildArgs(['--sandbox', 'none'])).toThrow(/unsafe-local-build/)
     expect(() => parseRebuildArgs(['--sandbox', 'docker', '--unsafe-local-build'])).toThrow(UsageError)
     const o = parseRebuildArgs(['--release', '3', '--sandbox', 'none', '--unsafe-local-build', '--json'], {})
-    expect(o).toMatchObject({ release: 3, sandbox: 'none', unsafeLocalBuild: true, json: true, source: 'https://github.com/rootp1/dithub.git' })
+    expect(o).toMatchObject({ release: 3, sandbox: 'none', unsafeLocalBuild: true, json: true, source: 'https://github.com/rootp1/dithub-base.git' })
     expect(parseRebuildArgs([], { DIT_SOURCE_REPO: '/x' }).source).toBe('/x')
     expect(parseRebuildArgs(['--source', '/y'], { DIT_SOURCE_REPO: '/x' }).source).toBe('/y')
   })

@@ -260,7 +260,7 @@ Example workflow:
   rebuild  prove the on-chain release equals a fresh build of the PUBLIC SOURCE at that commit:
              dit verify rebuild [--release N | --commit SHA] [--source URL_OR_PATH] [--site URL]
                                 [--sandbox auto|docker|none] [--unsafe-local-build] [--json]
-           Fetches only that commit (default repo https://github.com/rootp1/dithub.git, or $DIT_SOURCE_REPO),
+           Fetches only that commit (default repo https://github.com/rootp1/dithub-base.git, or $DIT_SOURCE_REPO),
            builds it exactly like CI (GIT_COMMIT=<sha> bun apps/web/build.ts) inside Docker (--network none,
            source read-only, pinned bun image) and re-hashes every output file itself. Without Docker it refuses,
            unless you pass both \`--sandbox none --unsafe-local-build\` (empty-environment local child).

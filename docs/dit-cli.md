@@ -236,7 +236,7 @@ own staging area is untouched.
   proves that the on-chain release equals a fresh build of the PUBLIC SOURCE, so nobody has to trust the publisher.
   It reads the release from DeployRegistry (`releaseCount` / `getRelease`; default the latest; `--commit` scans newest
   first), decodes the right-aligned 20-byte git sha from the `commit` bytes32, fetches only that commit into a
-  fresh temp dir (default repo `https://github.com/rootp1/dithub.git`, or `$DIT_SOURCE_REPO`, or a local checkout
+  fresh temp dir (default repo `https://github.com/rootp1/dithub-base.git`, or `$DIT_SOURCE_REPO`, or a local checkout
   path; shallow `git fetch --depth 1 origin <sha>` with a full-fetch fallback), checks `git rev-parse HEAD` equals
   the sha, and runs exactly what CI runs, `GIT_COMMIT=<sha> bun apps/web/build.ts`. It does **not** trust the built
   `build.json`: it re-hashes every output file itself (sha256, sorted keys, bundleHash = sha256 of the JSON map, as
