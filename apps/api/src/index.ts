@@ -9,6 +9,11 @@ import { can, findRepo, type RepoRow } from './perm.ts'
 import { deriveRepoId, git, initBare, installHooks, repoPath, runHttpBackend, safePath, safeRef } from './gitrepo.ts'
 import { internal } from './internal.ts'
 import { rbac } from './rbac.ts'
+import { issues } from './issues.ts'
+import { pulls } from './pulls.ts'
+import { assistant } from './assistant.ts'
+import { deployments } from './deployments.ts'
+import { sessions, resolveAccess, scopeGuard, filterTree, scopedCommits, logSessionEvent } from './sessions.ts'
 
 requireConfig()
 // Keep every bare repo's hooks in step with this release.
@@ -64,6 +69,11 @@ app.patch('/api/me', async (c) => {
 
 // ---------- orgs (RBAC lives in rbac.ts) ----------
 app.route('/api', rbac)
+app.route('/api', issues)
+app.route('/api', pulls)
+app.route('/api', sessions)
+app.route('/', assistant)
+app.route('/api', deployments)
 
 // ---------- repos ----------
 const nameOk = (n: string) => /^[A-Za-z0-9._-]{1,100}$/.test(n) && n !== '.' && n !== '..' && !n.endsWith('.git')
@@ -110,28 +120,36 @@ app.get('/api/repos', async (c) => {
 })
 
 async function loadRepo(c: import('hono').Context) {
-  const user = await authenticate(c)
   const repo = await findRepo(c.req.param('owner')!, c.req.param('repo')!)
-  if (!repo || !(await can(user, repo, 'read'))) return { user, repo: null as RepoRow | null }
-  return { user, repo }
+  if (!repo) return { user: await authenticate(c), repo: null as RepoRow | null, scope: null, denied: null as { status: 401 | 403 | 404; error: string } | null }
+  // A task session (x-dheet-session / ?session=) limits the caller to the session's scope.
+  const acc = await resolveAccess(c, repo, 'read')
+  if (!acc.ok) return { user: acc.user, repo: null as RepoRow | null, scope: null, denied: acc.error ? { status: acc.status, error: acc.error } : null }
+  return { user: acc.user, repo, scope: acc.scope, denied: null }
 }
 
 app.get('/api/repos/:owner/:repo', async (c) => {
-  const { user, repo } = await loadRepo(c)
-  if (!repo) return c.json({ error: 'not found' }, 404)
-  const refs = await sql`SELECT name, oid FROM git_refs WHERE repo_id = ${repo.id} ORDER BY name`
+  const { user, repo, scope, denied } = await loadRepo(c)
+  if (!repo) return denied ? c.json({ error: denied.error }, denied.status) : c.json({ error: 'not found' }, 404)
+  const refs = (await sql`SELECT name, oid FROM git_refs WHERE repo_id = ${repo.id} ORDER BY name`)
+    .filter((r: { name: string }) => !scope || scope.role === 'maintainer' || r.name === `refs/heads/${scope.ref}`)
   return c.json({
     owner: repo.owner_login, name: repo.name, description: repo.description, visibility: repo.visibility,
-    defaultBranch: repo.default_branch, repoId: toHex(repo.dheet_repo_id), canWrite: await can(user, repo, 'write'),
+    defaultBranch: repo.default_branch, repoId: toHex(repo.dheet_repo_id), canWrite: scope ? false : await can(user, repo, 'write'), session: scope ? { id: scope.id, role: scope.role, ref: scope.ref, issueNumber: scope.issueNumber, expiresAt: scope.expiresAt } : null,
     cloneUrl: `${config.publicUrl}/git/${repo.owner_login}/${repo.name}`,
     refs: refs.map((r: { name: string; oid: Buffer }) => ({ name: r.name, oid: toHex(r.oid) })),
   })
 })
 
 app.get('/api/repos/:owner/:repo/tree', async (c) => {
-  const { repo } = await loadRepo(c)
-  if (!repo) return c.json({ error: 'not found' }, 404)
-  const ref = c.req.query('ref') ?? repo.default_branch, path = c.req.query('path') ?? ''
+  const { repo, scope, denied } = await loadRepo(c)
+  if (!repo) return denied ? c.json({ error: denied.error }, denied.status) : c.json({ error: 'not found' }, 404)
+  let ref = c.req.query('ref') ?? repo.default_branch, path = c.req.query('path') ?? ''
+  if (scope) {
+    const g = await scopeGuard(scope, 'tree', c.req.query('ref'), path)
+    if (!g.ok) return c.json({ error: g.error }, g.status)
+    ref = g.ref; path = g.path
+  }
   if (!safeRef(ref) || !safePath(path)) return c.json({ error: 'bad ref or path' }, 400)
   const res = await git(repoPath(toHex(repo.dheet_repo_id)!), ['ls-tree', '-l', '-z', ref, ...(path ? [`${path.replace(/\/$/, '')}/`] : [])])
   if (res.code !== 0) return c.json({ entries: [] })
@@ -140,13 +158,18 @@ app.get('/api/repos/:owner/:repo/tree', async (c) => {
     const [mode, type, oid, size] = meta!.trim().split(/\s+/)
     return { mode, type, oid, size: size === '-' ? null : Number(size), name: name!.split('/').pop(), path: name }
   }).sort((a, b) => (a.type === b.type ? a.name!.localeCompare(b.name!) : a.type === 'tree' ? -1 : 1))
-  return c.json({ entries })
+  return c.json({ entries: scope ? filterTree(scope, path, entries) : entries })
 })
 
 app.get('/api/repos/:owner/:repo/blob', async (c) => {
-  const { repo } = await loadRepo(c)
-  if (!repo) return c.json({ error: 'not found' }, 404)
-  const ref = c.req.query('ref') ?? repo.default_branch, path = c.req.query('path') ?? ''
+  const { repo, scope, denied } = await loadRepo(c)
+  if (!repo) return denied ? c.json({ error: denied.error }, denied.status) : c.json({ error: 'not found' }, 404)
+  let ref = c.req.query('ref') ?? repo.default_branch, path = c.req.query('path') ?? ''
+  if (scope) {
+    const g = await scopeGuard(scope, 'blob', c.req.query('ref'), path)
+    if (!g.ok) return c.json({ error: g.error }, g.status)
+    ref = g.ref; path = g.path
+  }
   if (!path || !safeRef(ref) || !safePath(path)) return c.json({ error: 'bad ref or path' }, 400)
   const dir = repoPath(toHex(repo.dheet_repo_id)!)
   const size = await git(dir, ['cat-file', '-s', `${ref}:${path}`])
@@ -160,8 +183,9 @@ app.get('/api/repos/:owner/:repo/blob', async (c) => {
 })
 
 app.get('/api/repos/:owner/:repo/commits', async (c) => {
-  const { repo } = await loadRepo(c)
-  if (!repo) return c.json({ error: 'not found' }, 404)
+  const { repo, scope, denied } = await loadRepo(c)
+  if (!repo) return denied ? c.json({ error: denied.error }, denied.status) : c.json({ error: 'not found' }, 404)
+  if (scope) return c.json({ commits: await scopedCommits(scope), scoped: true })
   const rows = await sql`SELECT c.oid, c.subject, c.author_name, c.author_email, c.committed_at, a.status, a.ref_name,
       a.l1_chain_id, a.l1_tx, a.l1_block, a.arkiv_tx, a.arkiv_entity
     FROM commits c LEFT JOIN commit_anchors a ON a.repo_id = c.repo_id AND a.commit_oid = c.oid
@@ -173,8 +197,9 @@ app.get('/api/repos/:owner/:repo/commits', async (c) => {
 })
 
 app.get('/api/repos/:owner/:repo/ledger', async (c) => {
-  const { repo } = await loadRepo(c)
-  if (!repo) return c.json({ error: 'not found' }, 404)
+  const { repo, scope, denied } = await loadRepo(c)
+  if (!repo) return denied ? c.json({ error: denied.error }, denied.status) : c.json({ error: 'not found' }, 404)
+  if (scope) { await logSessionEvent(scope.id, scope.userId, 'denied', { kind: 'ledger' }); return c.json({ error: 'not available in a scoped session' }, 403) }
   const anchors = await sql`SELECT ref_name, chain_id, encode(contract,'hex') AS contract, encode(tx_hash,'hex') AS tx, ref_sequence, encode(ref_root,'hex') AS root
     FROM chain_anchors WHERE repo_id = ${repo.id} ORDER BY id DESC LIMIT 50`
   const entities = await sql`SELECT schema, encode(entity_key,'hex') AS entity, encode(tx_hash,'hex') AS tx, expires_at_block
@@ -195,13 +220,7 @@ app.all('/git/:owner/:repo/*', async (c) => {
   const url = new URL(c.req.url)
   const pathInfo = url.pathname.slice(`/git/${owner}/${c.req.param('repo')}`.length)
   const isPush = pathInfo.endsWith('git-receive-pack') || url.searchParams.get('service') === 'git-receive-pack'
-  const user = await authenticate(c)
-  if (isPush ? !(user && (await can(user, repo, 'write'))) : !(await can(user, repo, 'read'))) {
-    return new Response(user ? 'forbidden' : 'authentication required', {
-      status: user ? 403 : 401, headers: user ? {} : { 'www-authenticate': 'Basic realm="Dheet (use a personal access token as password)"' },
-    })
-  }
-  return runHttpBackend({
+  const runGit = () => runHttpBackend({
     repoIdHex: toHex(repo.dheet_repo_id)!, pathInfo, method: c.req.method, query: url.search.slice(1),
     headers: c.req.raw.headers, body: c.req.raw.body, remoteUser: user?.login ?? null,
     extraEnv: {
@@ -209,6 +228,24 @@ app.all('/git/:owner/:repo/*', async (c) => {
       DHEET_REPO_ID: toHex(repo.dheet_repo_id)!, DHEET_USER_ID: user ? String(user.id) : '',
     },
   })
+  const user = await authenticate(c)
+  if (c.req.header('x-dheet-session') || c.req.query('session')) {
+    // Clone/fetch hands over the whole history: only maintainer-role sessions may use it; pushes are never granted by a session.
+    const acc = await resolveAccess(c, repo, 'read')
+    if (!acc.ok) return new Response(acc.error ?? 'forbidden', acc.status === 401
+      ? { status: 401, headers: { 'www-authenticate': 'Basic realm="Dheet (use a personal access token as password)"' } } : { status: 403 })
+    if (acc.scope!.role !== 'maintainer') {
+      await logSessionEvent(acc.scope!.id, acc.scope!.userId, 'clone_denied', { push: isPush })
+      return new Response('git clone/fetch is not allowed for scoped sessions; use /api/sessions/:id/export', { status: 403 })
+    }
+    if (!isPush) return runGit()
+  }
+  if (isPush ? !(user && (await can(user, repo, 'write'))) : !(await can(user, repo, 'read'))) {
+    return new Response(user ? 'forbidden' : 'authentication required', {
+      status: user ? 403 : 401, headers: user ? {} : { 'www-authenticate': 'Basic realm="Dheet (use a personal access token as password)"' },
+    })
+  }
+  return runGit()
 })
 
 app.route('/internal', internal)

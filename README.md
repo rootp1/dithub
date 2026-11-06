@@ -1,104 +1,111 @@
 # Dheet
 
-Dheet is a Git-compatible decentralised version-control protocol. The implementation is organised as a local-first vertical slice with adapters for Arkiv, ENSv2, and Ethereum contracts.
+Dheet is a GitHub-style collaboration platform (repos, orgs and RBAC, issues, pull requests, task-scoped contractor sessions) whose history is mirrored to public
+infrastructure: every commit is recorded as an Arkiv entity carrying the Ethereum Sepolia anchor transaction, repo code is published to Arkiv, and the frontend you
+are served is provably the one released on-chain. It also contains the original protocol work: a Git-compatible decentralised remote (`git-remote-dheet`) with an
+SDK, CLI, indexer and Solidity contracts (see `plan.md`).
 
-## Development
+Live: https://172-105-43-184.sslip.io (single Linode, Caddy TLS, Docker Compose). Licence: MIT.
+
+## Architecture
+
+```
+ browser ── HTTPS ──> Caddy ──> api (Bun + Hono)  ──────────────> PostgreSQL 16  (users, repos, RBAC, issues, PRs, outbox, deployments)
+   │                              │  git smart HTTP + hooks              ▲
+   │ GET /build.json              │  /api/deployments ── reads ──┐       │ outbox / cursors
+   ▼                              ▼                              ▼       │
+ apps/web (static, hashed)    bare git repos            Arkiv (Rabdi) <──┴── worker (Bun)
+                                                         ▲  dheet-activity-v1, -manifest-v1, -chunk-v1, -name-v1
+ GitHub Actions ─ build ─ rsync ─ docker compose          │  
+        │                                                 └── worker also mirrors Sepolia logs ──┐
+        ├─ publish-release.ts ──> DeployRegistry (Sepolia) <── CRE deploy-attestor (DON) ──> DeployAttestations
+        └─ verify-site.ts  ◄── anyone can run this: site files ↔ chain ↔ attestation
+ 0G Private Computer (TEE inference) <── api assistant (issue summaries / Q&A inside sessions)
+```
+
+## Setup
+
+Requirements: Bun 1.4.x, Docker, git, Foundry (for contracts).
 
 ```sh
 bun install
-bun run check
+cp .env.example .env                     # fill in values; never commit
+docker compose -f infra/docker-compose.yml up -d --wait     # Postgres, Redis, Meilisearch, Mailpit
+bun apps/api/src/migrate.ts              # applies packages/db/migrations/*.sql
+bun apps/web/build.ts                    # builds apps/web/dist (+ build.json)
+bun run api                              # API + web on :3000
+bun run worker                           # outbox -> L1 anchor + Arkiv, deployment mirror, Arkiv renewal
 ```
 
-Create and publish a repository to a local network directory:
+Environment variable names (see `.env.example` and `infra/prod.env`): `ARKIV_ACCESS_KEY`, `DHEET_PRIVATE_KEY` (relayer), `DHEET_SEAT_KEY`, `DHEET_STRANGER_KEY`,
+`DHEET_DEPLOYER_KEY`, `CRE_ETH_PRIVATE_KEY`, `SEPOLIA_RPC_URL`, `ETHERSCAN_API_KEY`, `ZG_API_KEY`, `ZG_PRIVATE_KEY`, `ZG_PRIVY_APP_ID`, `DHEET_LINODE_API_KEY`;
+app runtime: `DATABASE_URL`, `INTERNAL_TOKEN`, `PORT`, `PUBLIC_URL`, `REF_REGISTRY`, `L1_RPC_URL`, `L1_CHAIN_ID`, `COOKIE_SECURE`, `SITE_HOST`.
+
+## Commands and tests
 
 ```sh
-git init demo && cd demo
-git commit --allow-empty -m init
-bun ../packages/cli/src/index.ts init demo.local --network ../network
-bun ../packages/cli/src/index.ts push demo.local --network ../network
-bun ../packages/cli/src/index.ts clone demo.local ../clone --network ../network
+bun run typecheck
+bun test packages/sdk/test packages/e2e/local-flow.test.ts   # SDK + local two-identity git flow
+bun run test:contracts                                       # forge test --root packages/contracts
+bun scripts/e2e-platform.ts                                  # platform e2e against a local API
+BASE_URL=https://172-105-43-184.sslip.io bun scripts/smoke-prod.ts
+SITE=https://172-105-43-184.sslip.io bun scripts/verify-site.ts
 ```
 
-The local adapter is deterministic and exercises the same object, chunk, manifest, verification, process-safe compare-and-swap, and Git remote-helper boundaries used by remote adapters.
+## CROPS
 
-## Implemented vertical slice
+**Censorship resistance.** Repository code (chunked packfiles + manifest) and per-commit activity are published to Arkiv, and each push is anchored by one transaction to
+`RefRegistry` on Ethereum Sepolia. If our server disappears, `arkiv-clone` rebuilds a repo from Arkiv alone, verifying the manifest hash and every BLAKE3 chunk.
+Public-org RBAC changes are a hash chain mirrored to Arkiv. Limits: the web app and API are still one server we operate; Arkiv entities expire after about 182.5 days unless renewed (the worker renews them).
 
-- Native SHA-1 and SHA-256 Git object framing and verification.
-- 120 KiB BLAKE3-verified chunks, canonical manifests, and Merkle object roots.
-- Content-addressed local network adapter with atomic CAS and deduplication.
-- `git-remote-dheet` smart-protocol bridge for normal `git clone` and `git push`.
-- Arkiv Rabdi uploader using readonly, permissionlessly extendable entities.
-- ENSv2 deployment verification and deterministic proxy salt helpers.
-- Solidity `RepoFactory`, `RefRegistry`, and `DheetRepoRegistrar` contracts.
-- Direct, EIP-712 relayed, EIP-1271, and unsigned Safe/hardware-wallet ref flows, tested against Anvil.
-- Authenticated XChaCha20-Poly1305 private payload primitives with repository/key-epoch binding.
-- EIP-712 signed PR, review, issue, comment, and release records.
-- Self-verifying cold archives with complete hot-store recovery.
-- SQLite indexer, static self-hosted explorer, and Arkiv expiry renewal tooling.
+**Open source.** MIT licence; the whole stack (API, worker, web, SDK, contracts, CRE workflow, CI) is in this repo and runs from `docker compose`.
 
-## Git remote
+**Privacy.** Private repos and private orgs are never queued for the public ledger (the worker marks their anchors `done_private`; private orgs get 404 for non-members).
+Task sessions use the 0G Private Computer router in private trust mode so in-scope code is not shown to an ordinary model provider (`docs/zerog.md`).
+Limits: Arkiv and Sepolia data is public by design; wallet addresses of public contributors are visible; private data lives in our Postgres, not encrypted on a public network.
 
-Generate a remote URL and use it with Git:
+**Security.** SIWE login, hashed PATs, per-IP rate limits on auth, RBAC enforced in git `pre-receive`, containers with `cap_drop: ALL` and `no-new-privileges`, key-only SSH,
+Cloud Firewall (22/80/443), fail2ban. Contracts are tested with Foundry but **not audited**; keys in this repo's environment are testnet keys.
+
+**Verifiable frontend (the demo).** CI builds `apps/web` with `GIT_COMMIT=<sha>`; the build emits `build.json {commit, bundleHash, files}` where
+`bundleHash = sha256(JSON.stringify({file: "0x"+sha256(bytes)}) with keys sorted)`. `scripts/publish-release.ts` records `(commit, bundleHash, url)` in `DeployRegistry`,
+and the Chainlink CRE workflow independently fetches the live site, recomputes the hash and writes `ok` on-chain to `DeployAttestations`. Anyone can check:
 
 ```sh
-REMOTE=$(bun packages/cli/src/index.ts remote-url demo.local --network ../network)
-PATH="$PWD/bin:$PATH" git clone "$REMOTE" clone
-PATH="$PWD/bin:$PATH" git push "$REMOTE" main
+SITE=https://172-105-43-184.sslip.io bun scripts/verify-site.ts
 ```
 
-## Arkiv
+It re-hashes every served file, recomputes the bundle hash, compares with `latestRelease()` and the CRE attestation, prints PASS/FAIL/WARN per check and exits 1 on any mismatch
+(tampering with a served file was tested and yields FAIL). To reproduce the build from source: check out the commit shown in `build.json`, run
+`GIT_COMMIT=<sha> bun apps/web/build.ts` with Bun 1.4.4 and compare `bundleHash`. Caveat: reproducibility depends on the same Bun version and lockfile; the production Docker base image tag is floating (`oven/bun:1-debian`).
+Another caveat: the check proves "served files == released files", not that the released source is free of bugs, and a malicious server could serve different files to
+different clients (the CRE nodes and your own run sample the same URL).
 
-Fund the publishing account with Rabdi tGLM, then provide the signing key only for the command invocation:
+## Contract addresses
 
-```sh
-DHEET_PRIVATE_KEY=0x... bun packages/cli/src/index.ts arkiv-publish demo.local \
-  --network ../network --access-key "$ARKIV_ACCESS_KEY"
-```
+Ethereum Sepolia (chain 11155111). Deploy addresses are read from `deployments/sepolia.json`:
 
-## L1 anchor
+| Contract | Address |
+| --- | --- |
+| DeployRegistry | `0x9caa2fEB7880Bb81b7A3C3324c22C3293c65655e` (deploy block 12073825) |
+| DeployAttestations | `0x458d41E371141655c5b04618875aF22F83809BC9` (deploy block 12073828) |
+| RefRegistry | `0x9f66f0CDc76423D26692437e3964e5CeB7F9341B` |
+| Forwarder (in `deployments/sepolia.json`) | `0x15fC6ae953E024d975e77382eEeC56A9101f9F88`, a MockKeystoneForwarder (CRE simulation) |
 
-Deploy `RefRegistry` from `packages/contracts`, then anchor a published ref:
+Wallets (public addresses): relayer / Arkiv writer `0x7e290CA88091C8635cC78fE58bB1f6e1361b097c`; deployer / registry owner `0xe5F2164bD59ba9F19fC76F1Aa1E55199a159A16b`;
+CRE wallet `0xB8Fc5e8C8B58a96b02980438Ed72EfE983100742`.
 
-```sh
-DHEET_PRIVATE_KEY=0x... bun packages/cli/src/index.ts anchor demo.local \
-  --network ../network --rpc http://127.0.0.1:8545 --chain-id 31337 \
-  --ref-registry 0x...
-```
+## Repository map
 
-Private keys are never persisted by Dheet. Production signing should use an external wallet or unsigned transaction flow before mainnet deployment.
+`apps/api`, `apps/worker`, `apps/web`, `apps/git/hooks`, `packages/sdk` (protocol + Arkiv), `packages/contracts`, `packages/db/migrations`, `cre/deploy-attestor`,
+`infra/` (prod compose, Caddy), `scripts/`, `arkiv/` (Arkiv track documents), `docs/` (`ci-cd.md`, `chainlink-cre.md`, `zerog.md`, `api-phase3.md`, `implementation-status.md`), `SUBMISSION.md`.
 
-Generate an unsigned transaction for a Safe or hardware wallet:
+## Honest limitations
 
-```sh
-bun packages/cli/src/index.ts anchor-plan demo.local --network ../network \
-  --rpc http://127.0.0.1:8545 --chain-id 31337 --ref-registry 0x... --json
-```
-
-## Archives and recovery
-
-```sh
-bun packages/cli/src/index.ts archive-export demo.local demo.dheet-archive --network ../network
-bun packages/cli/src/index.ts archive-import demo.dheet-archive --network ../recovered-network
-bun packages/cli/src/index.ts verify demo.local --network ../recovered-network
-```
-
-## Collaboration records
-
-```sh
-DHEET_PRIVATE_KEY=0x... bun packages/cli/src/index.ts record-create demo.local \
-  --network ../network --kind issue --body '{"title":"Reproduce the bug","state":"open"}'
-bun packages/cli/src/index.ts records demo.local --network ../network
-```
-
-## Indexer and explorer
-
-```sh
-bun run build:web
-DHEET_NETWORK=../network PORT=8787 bun run indexer
-```
-
-Open `http://localhost:8787`. The indexer is optional; repository and collaboration data remain locally verifiable.
-
-## External-network acceptance
-
-Local and Anvil acceptance is automated. Rabdi uploads, ENSv2 Sepolia registration, public cold-storage replication, and mainnet deployment require funded accounts and environment-specific deployment manifests; they are not simulated or reported as completed by the test suite.
+- Testnets only (Sepolia, Arkiv Rabdi); no mainnet deployment, no audit.
+- One server; no database backups yet; the relayer key is a testnet key in `infra/prod.env`.
+- Arkiv has no read proofs and anyone can write entities of our schema, so readers filter by the trusted writer address and verify hashes where possible; see `arkiv/friction.md`.
+- Arkiv entities need renewal (about 182.5 days max per purchase); a renewal drill has not been run end to end.
+- The CRE workflow is validated by simulation and a mock forwarder in `deployments/sepolia.json`; check `SUBMISSION.md` for whether a live DON deployment exists.
+- Wallet login is EOA-only (no EIP-1271); the chain head of the RBAC hash chain is not yet anchored on L1.
+- The project began before the hackathon (see `SUBMISSION.md`).

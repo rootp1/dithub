@@ -4,6 +4,7 @@ import {
   LocalNetworkStore, anchorRef, claimName, createArkivConnection, publishRepository, recordActivity,
   renewArkivEntities, sha256, uploadManifestToArkiv, padOid,
 } from '../../../packages/sdk/src/index.ts'
+import { startDeploymentMirror } from './deployments.ts'
 
 const env = process.env
 const sql = new SQL(env.DATABASE_URL ?? '')
@@ -167,6 +168,7 @@ async function renewal() {
 
 console.log(`dheet worker started, relayer ${relayer}`)
 await sql`UPDATE outbox SET status = 'pending' WHERE status = 'processing'`   // crash recovery
+startDeploymentMirror({ sql, arkiv, relayer })   // Sepolia DeployRegistry/Attestations -> Postgres + Arkiv (own loop)
 let lastRenewal = 0
 for (;;) {
   const worked = await tick().catch((e) => { console.error('tick error', e); return false })

@@ -1,6 +1,6 @@
 name: dheet-prod
 x-app: &app
-  build: { context: .., dockerfile: Dockerfile }
+  build: { context: .., dockerfile: Dockerfile, args: { GIT_COMMIT: "${GIT_COMMIT:-dev}" } }
   env_file: [prod.env]
   restart: unless-stopped
   depends_on: { postgres: { condition: service_healthy } }

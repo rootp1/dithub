@@ -15,6 +15,7 @@ RUN bun install --frozen-lockfile --production
 COPY apps apps
 COPY packages/sdk packages/sdk
 COPY packages/db packages/db
+COPY deployments deployments
 ARG GIT_COMMIT=dev
 RUN GIT_COMMIT=$GIT_COMMIT bun apps/web/build.ts
 ENV NODE_ENV=production REPOS_DIR=/data/repos WORKER_DIR=/data/worker

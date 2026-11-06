@@ -1,0 +1,97 @@
+name: deploy
+
+# Runs only after the `ci` workflow succeeded on main. Secrets are referenced by name only.
+on:
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  SITE_URL: https://172-105-43-184.sslip.io
+  DEPLOY_USER: ${{ vars.DEPLOY_USER || 'root' }}
+  DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/dheet' }}
+
+jobs:
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GIT_COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: oven-sh/setup-bun@v2.0.1
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+
+      - name: Build web bundle (build.json carries the commit)
+        run: bun apps/web/build.ts
+
+      - name: Configure SSH
+        env:
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
+
+      - name: Sync sources to server (never touches infra/prod.env or server state)
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/deploy_key" \
+            --exclude '.git/' --exclude 'node_modules/' --exclude '.data/' --exclude '**/dist/' \
+            --exclude 'infra/prod.env' --exclude '.env' --exclude '.env.*' --exclude 'demo-run/' --exclude 'ensv2-env/' \
+            ./ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
+
+      - name: Rebuild and restart containers
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
+            "cd '$DEPLOY_PATH' && GIT_COMMIT='$GIT_COMMIT' docker compose -f infra/docker-compose.prod.yml up -d --build"
+
+      - name: Wait for the new build to be served
+        run: |
+          for _ in $(seq 1 30); do
+            served=$(curl -fsS "$SITE_URL/build.json" 2>/dev/null | python3 -c 'import json,sys; print(json.load(sys.stdin)["commit"])' 2>/dev/null || true)
+            [ "$served" = "$GIT_COMMIT" ] && { echo "site serves $served"; exit 0; }
+            sleep 10
+          done
+          echo "site did not serve commit $GIT_COMMIT in time" >&2; exit 1
+
+      - name: Publish release on-chain (DeployRegistry, Sepolia)
+        env:
+          DHEET_DEPLOYER_KEY: ${{ secrets.DHEET_DEPLOYER_KEY }}
+          SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
+          BUILD_FROM_SITE: '1'
+        run: bun scripts/publish-release.ts
+
+      - name: Trigger CRE verification workflow (optional)
+        env:
+          CRE_TRIGGER_URL: ${{ secrets.CRE_TRIGGER_URL }}
+        run: |
+          if [ -z "$CRE_TRIGGER_URL" ]; then echo "CRE_TRIGGER_URL not set; skipping"; exit 0; fi
+          curl -fsS -X POST -H 'content-type: application/json' --max-time 60 \
+            -d "{\"commit\":\"$GIT_COMMIT\",\"url\":\"$SITE_URL\"}" "$CRE_TRIGGER_URL" || echo "CRE trigger failed (non-fatal)"
+
+      - name: Verify the live site against the chain
+        env:
+          SITE: ${{ env.SITE_URL }}
+          SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
+        run: bun scripts/verify-site.ts

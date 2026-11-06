@@ -12,7 +12,7 @@ internal.use('*', async (c, next) => {
   await next()
 })
 
-interface Update { oldOid: string; newOid: string; ref: string; ff?: boolean }
+export interface Update { oldOid: string; newOid: string; ref: string; ff?: boolean }
 
 async function loadContext(repoIdHex: string, userId: string | undefined) {
   const [repo] = await sql`SELECT r.*, COALESCE(u.login, o.login) AS owner_login FROM repos r
@@ -58,11 +58,17 @@ internal.post('/post-receive', async (c) => {
   const body = await c.req.json<{ repoId: string; userId?: string; updates: Update[] }>()
   const ctx = await loadContext(body.repoId, body.userId)
   if (!ctx) return c.text('unknown repo', 404)
-  const { repo, user } = ctx
-  const dir = repoPath(body.repoId)
+  await recordRefUpdates(ctx.repo, ctx.user, body.repoId, body.updates)
+  return c.text('ok')
+})
+
+/** Record ref updates exactly like a push: pushes row, git_refs, commits, commit_anchors, activity and the outbox 'push' entry the worker anchors.
+ *  Used by post-receive and by server-side merges / session proposals (which update refs without receive-pack). */
+export async function recordRefUpdates(repo: RepoRow, user: AuthUser | null, repoIdHex: string, updates: Update[]): Promise<void> {
+  const dir = repoPath(repoIdHex)
   let firstBranch: string | null = null
 
-  for (const u of body.updates) {
+  for (const u of updates) {
     const deleted = ZERO_OID.test(u.newOid)
     const created = ZERO_OID.test(u.oldOid)
     let forced = false
@@ -89,7 +95,7 @@ internal.post('/post-receive', async (c) => {
       await tx`INSERT INTO activity (repo_id, actor_id, kind, payload) VALUES (${repo.id}, ${user?.id ?? null}, 'push',
         ${JSON.stringify({ ref: u.ref, commits: commits.length, forced, deleted })}::text::jsonb)`
       await tx`INSERT INTO outbox (aggregate_type, aggregate_id, kind, payload)
-        VALUES ('push', ${push.id}, 'push', ${JSON.stringify({ pushId: Number(push.id), repoId: body.repoId })}::text::jsonb)`
+        VALUES ('push', ${push.id}, 'push', ${JSON.stringify({ pushId: Number(push.id), repoId: repoIdHex })}::text::jsonb)`
     })
     if (!deleted && u.ref.startsWith('refs/heads/') && !firstBranch) firstBranch = u.ref.replace('refs/heads/', '')
   }
@@ -97,8 +103,7 @@ internal.post('/post-receive', async (c) => {
     const heads = await git(dir, ['symbolic-ref', '--short', 'HEAD'])
     if (heads.code === 0) await sql`UPDATE repos SET default_branch = ${heads.out.trim()} WHERE id = ${repo.id}`
   }
-  return c.text('ok')
-})
+}
 
 async function otherRefs(dir: string, ref: string): Promise<string[]> {
   const res = await git(dir, ['for-each-ref', '--format=%(refname)'])
