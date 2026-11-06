@@ -52,13 +52,32 @@ function renderNav() {
   document.getElementById('out')?.addEventListener('click', async () => { await api('/api/auth/logout', { method: 'POST' }); me = null; render() })
 }
 
+type OrgSummary = { login: string; visibility: string; role: string; members: number; repos: number }
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+function orgsColumn(orgs: OrgSummary[] | null): string {
+  const head = `<div class="side-head"><h2 id="orgs-heading">Organisations</h2>${me ? '<a class="side-link" href="/orgs/new">New</a>' : ''}</div>`
+  if (orgs === null) return `${head}<div class="card side-empty"><p class="muted">Connect your wallet to see your organisations.</p></div>`
+  if (orgs.length === 0) return `${head}<div class="card side-empty"><p class="muted">You are not in any organisations yet.</p><a class="btn" href="/orgs/new">Create organisation</a></div>`
+  return `${head}<div class="card list org-list">${orgs.map((o) => `
+    <div class="org-row"><div class="org-avatar" aria-hidden="true">${esc(o.login.slice(0, 1).toUpperCase())}</div>
+    <div class="grow"><a href="/orgs/${esc(o.login)}"><b>${esc(o.login)}</b></a>
+    <div class="org-meta"><span class="chip">${esc(o.visibility)}</span><span class="chip ${o.role === 'owner' ? 'ok' : ''}">${esc(o.role)}</span></div>
+    <div class="muted org-counts">${plural(o.members, 'member')} · ${plural(o.repos, 'repo')}</div></div></div>`).join('')}</div>`
+}
+
 async function home() {
-  const { repos } = await api<{ repos: any[] }>('/api/repos')
+  const [{ repos }, orgs] = await Promise.all([
+    api<{ repos: any[] }>('/api/repos'),
+    me ? api<{ orgs: OrgSummary[] }>('/api/me/orgs').then((r) => r.orgs).catch(() => [] as OrgSummary[]) : Promise.resolve(null),
+  ])
   app.innerHTML = `<header class="page-heading"><div><p class="eyebrow">Workspace</p><h1>Repositories</h1><p class="page-description">Browse code, collaborate, and verify every release from one place.</p></div>${me ? '<a class="btn" href="/new">New repository</a>' : ''}</header>
+    <div class="home-grid"><section class="home-main" aria-label="Repositories">
     <div class="card list repo-list">${repos.map((r) => `
     <div class="repo-row"><div class="repo-icon" aria-hidden="true">⌘</div><div class="grow"><div class="repo-title"><a href="/${esc(r.owner)}/${esc(r.name)}"><b>${esc(r.owner)}/${esc(r.name)}</b></a>
     <span class="chip">${esc(r.visibility)}</span></div><div class="muted repo-description">${esc(r.description ?? 'No description provided.')}</div>
-    <div class="muted mono repo-id">${short(r.repoId)}</div></div><span class="row-arrow" aria-hidden="true">›</span></div>`).join('') || `<div class="empty-state"><div class="empty-icon" aria-hidden="true">⌘</div><h2>No repositories yet</h2><p class="muted">${me ? 'Create a repository to start collaborating.' : 'Connect your wallet to create your first repository.'}</p>${me ? '<a class="btn" href="/new">Create repository</a>' : ''}</div>`}</div>`
+    <div class="muted mono repo-id">${short(r.repoId)}</div></div><span class="row-arrow" aria-hidden="true">›</span></div>`).join('') || `<div class="empty-state"><div class="empty-icon" aria-hidden="true">⌘</div><h2>No repositories yet</h2><p class="muted">${me ? 'Create a repository to start collaborating.' : 'Connect your wallet to create your first repository.'}</p>${me ? '<a class="btn" href="/new">Create repository</a>' : ''}</div>`}</div></section>
+    <aside class="home-side" aria-labelledby="orgs-heading">${orgsColumn(orgs)}</aside></div>`
 }
 
 function newRepo() {

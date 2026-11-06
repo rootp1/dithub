@@ -66,6 +66,16 @@ rbac.post('/orgs', async (c) => {
   return c.json({ org }, 201)
 })
 
+// Every organisation the signed-in user belongs to, for the home page column.
+rbac.get('/me/orgs', async (c) => {
+  const user = await requireUser(c); if (!user) return c.json({ error: 'sign in first' }, 401)
+  const rows = await sql`SELECT o.login, o.visibility, m.role,
+      (SELECT count(*)::int FROM org_members x WHERE x.org_id = o.id) AS members,
+      (SELECT count(*)::int FROM repos r WHERE r.owner_kind = 'org' AND r.owner_id = o.id AND r.deleted_at IS NULL) AS repos
+    FROM org_members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ${user.id} ORDER BY lower(o.login)`
+  return c.json({ orgs: rows.map((r: { login: string; visibility: string; role: string; members: number; repos: number }) => ({ login: r.login, visibility: r.visibility, role: r.role, members: r.members, repos: r.repos })) })
+})
+
 rbac.get('/orgs/:org', async (c) => {
   const user = await requireUser(c)
   const org = await orgByLogin(c.req.param('org')); if (!org) return c.json({ error: 'not found' }, 404)

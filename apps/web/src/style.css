@@ -280,3 +280,17 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 0; 
   html { scroll-behavior: auto; }
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
+
+/* Home: repositories + organisations columns */
+.home-grid { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: start; }
+.home-main > .card:last-child, .home-side > .card:last-child { margin-bottom: 0; }
+.side-head { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 10px; }
+.side-head h2 { margin: 0; font-size: 16px; }
+.side-link { font-size: 13px; font-weight: 500; }
+.side-empty { padding: 16px; }
+.side-empty p { margin: 0 0 12px; }
+.org-list > .org-row { display: flex; gap: 12px; align-items: flex-start; padding: 12px 0; }
+.org-avatar { display: grid; flex: none; width: 32px; height: 32px; place-items: center; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-inset); color: var(--muted); font-weight: 600; }
+.org-meta { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 4px; }
+.org-counts { margin-top: 2px; font-size: 12px; }
+@media (max-width: 900px) { .home-grid { grid-template-columns: minmax(0, 1fr); } .home-side { order: -1; } }
