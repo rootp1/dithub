@@ -62,8 +62,23 @@ app.patch('/api/me', async (c) => {
   if (!/^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$/.test(login ?? '')) return c.json({ error: 'login must be 1-39 chars of a-z, 0-9, -' }, 400)
   const taken = await sql`SELECT 1 FROM orgs WHERE login = ${login}`
   if (taken.length) return c.json({ error: 'name is taken' }, 409)
-  try { await sql`UPDATE users SET login = ${login}, updated_at = now() WHERE id = ${user.id}` }
-  catch { return c.json({ error: 'name is taken' }, 409) }
+  if (login === user.login) return c.json({ ok: true, login })
+  try {
+    await sql.begin(async (tx) => {
+      await tx`UPDATE users SET login = ${login}, updated_at = now() WHERE id = ${user.id}`
+      // Repo names are keyed as "<owner>/<repo>" in the name registry: re-key this user's claims and queue fresh Arkiv claims
+      // (Arkiv entities are read-only, so the old claim stays as history and the new name gets its own entity).
+      const moved = await tx`UPDATE name_claims nc SET name = ${login} || '/' || r.name, arkiv_entity = NULL
+        FROM repos r WHERE nc.dheet_repo_id = r.dheet_repo_id AND r.owner_kind = 'user' AND r.owner_id = ${user.id}
+        RETURNING r.id AS repo_id, r.name AS repo_name, encode(nc.dheet_repo_id, 'hex') AS repo_hex`
+      for (const m of moved) {
+        await tx`INSERT INTO outbox (aggregate_type, aggregate_id, kind, payload)
+          VALUES ('repo', ${m.repo_id}, 'name_claim', ${JSON.stringify({ repoId: `0x${m.repo_hex}`, name: `${login}/${m.repo_name}` })}::text::jsonb)`
+      }
+      await tx`INSERT INTO audit_log (actor_id, action, target_type, target_id, metadata)
+        VALUES (${user.id}, 'user.rename', 'user', ${user.id}, ${JSON.stringify({ from: user.login, to: login, repos: moved.length })}::text::jsonb)`
+    })
+  } catch { return c.json({ error: 'name is taken' }, 409) }
   return c.json({ ok: true, login })
 })
 
@@ -251,6 +266,7 @@ app.all('/git/:owner/:repo/*', async (c) => {
 app.route('/internal', internal)
 
 // ---------- web app ----------
+app.use('/*', async (c, next) => { await next(); if (!c.req.path.startsWith('/api') && !c.req.path.startsWith('/git') && c.res.status === 200) c.res.headers.set('cache-control', 'no-cache') })
 app.use('/*', serveStatic({ root: config.webDir.replace(process.cwd() + '/', '') }))
 app.get('*', async (c) => {
   const file = Bun.file(`${config.webDir}/index.html`)
