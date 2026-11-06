@@ -55,7 +55,17 @@ export class Auth implements vscode.Disposable {
     const machine = (() => { try { return hostname().replace(/[^\w.-]/g, '').slice(0, 24) || 'machine' } catch { return 'machine' } })()
     let dev: Awaited<ReturnType<DithubClient['startDeviceLogin']>>
     try { dev = await anon.startDeviceLogin(`VS Code on ${machine}`) }
-    catch (err) { void vscode.window.showErrorMessage(`Dithub sign-in could not start: ${(err as Error).message}`); return false }
+    catch (err) {
+      const movedTo = (err as { body?: { movedTo?: string | null } }).body?.movedTo
+      if (movedTo) {
+        const use = `Switch to ${movedTo}`
+        const c = await vscode.window.showWarningMessage(`Dithub sign-in could not start: ${(err as Error).message}.`, use)
+        if (c !== use) return false
+        await vscode.workspace.getConfiguration('dithub').update('host', movedTo, vscode.ConfigurationTarget.Global)
+        return this.signIn()
+      }
+      void vscode.window.showErrorMessage(`Dithub sign-in could not start: ${(err as Error).message}`); return false
+    }
     // Only open http(s) URLs on the configured host.
     let verification: vscode.Uri
     try {

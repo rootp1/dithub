@@ -72,6 +72,14 @@ export class DithubClient {
         throw new ApiError(0, timeout ? `the request to ${this.host} timed out` : `cannot reach ${this.host}: ${String(e?.message ?? e).replace(/\s+/g, ' ').slice(0, 160)}`)
       }
       if ((res.status === 502 || res.status === 503) && i < attempts - 1) { await sleep(300 * 2 ** i); continue }
+      if (res.status >= 300 && res.status < 400) {
+        // Never follow redirects automatically (the Authorization header must not go to a host the user did not choose),
+        // but say clearly where the server moved so the caller can offer to switch.
+        const loc = res.headers.get('location')
+        let movedTo: string | null = null
+        try { if (loc) { const u = new URL(loc, this.host); if (u.protocol === 'https:') movedTo = u.origin } } catch { /* ignore */ }
+        throw new ApiError(res.status, movedTo && movedTo !== this.host ? `Dithub has moved: ${this.host} now redirects to ${movedTo}` : `unexpected redirect from ${this.host}`, { movedTo })
+      }
       const text = await res.text().catch(() => '')
       let parsed: unknown = null
       try { parsed = text ? JSON.parse(text) : null } catch { /* not JSON */ }

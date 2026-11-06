@@ -34,6 +34,12 @@ export class Api {
       try {
         const res = await fetch(this.url(path, opt.query), { method, headers, ...(body !== undefined ? { body } : {}), signal: AbortSignal.timeout(opt.timeoutMs ?? this.o.timeoutMs ?? 30_000), redirect: 'manual' })
         if ((res.status === 502 || res.status === 503) && i < attempts - 1) { await sleep(400 * 2 ** i); continue }
+        if (res.status >= 300 && res.status < 400) {
+          // Redirects are never followed (the token must not go to a host the user did not choose); explain the move instead.
+          let movedTo: string | null = null
+          try { const loc = res.headers.get('location'); if (loc) { const u = new URL(loc, this.o.host); if (u.protocol === 'https:') movedTo = u.origin } } catch { /* ignore */ }
+          throw new ApiError(res.status, movedTo ? `Dithub has moved to ${movedTo}: run \`dit login --host ${movedTo}\` (or set DIT_HOST=${movedTo})` : 'unexpected redirect from the server', { movedTo })
+        }
         if (!res.ok) {
           const text = await res.text().catch(() => '')
           let parsed: unknown = null
