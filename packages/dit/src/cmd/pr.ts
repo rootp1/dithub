@@ -117,6 +117,28 @@ export async function prCmd(argv: string[]): Promise<number> {
       if (json) printJson(r); else info(`${c.green('Merged')} #${n} (${r.method}) as ${r.mergeCommitOid.slice(2, 12)}.`)
       return 0
     }
+    case 'edit': {
+      const n = num()
+      let title = str(p.values.title), body = str(p.values.body)
+      if (title === undefined && body === undefined) {
+        const cur = await ctx.api.get<Pr>(`${ctx.R}/pulls/${n}`)
+        const t = splitTitleBody(editText(`${cur.title}\n\n${cur.body ?? ''}\n# First line is the title; the rest is the description. Lines starting with # are ignored.\n`))
+        title = t.title; body = t.body
+        if (!title) throw new DitError('aborted: empty title')
+      }
+      const pr = await ctx.api.patch<Pr>(`${ctx.R}/pulls/${n}`, { ...(title !== undefined ? { title } : {}), ...(body !== undefined ? { body } : {}) })
+      if (json) printJson(pr); else info(`${c.green('Updated')} pull request #${n}.`)
+      return 0
+    }
+    case 'comment': {
+      const n = num()
+      let body = str(p.values.body)
+      if (!body) body = editText('\n# Write your comment. Lines starting with # are ignored.\n')
+      if (!body) throw new DitError('aborted: empty comment')
+      const r = await ctx.api.post(`${ctx.R}/issues/${n}/comments`, { body })
+      if (json) printJson(r); else info(`${c.green('Commented')} on pull request #${n}.`)
+      return 0
+    }
     case 'close': case 'reopen': {
       const n = num()
       const pr = await ctx.api.patch<Pr>(`${ctx.R}/pulls/${n}`, { state: sub === 'close' ? 'closed' : 'open' })

@@ -47,8 +47,8 @@ export function bundleHashOf(files: Record<string, string>): string {
   return sha256(JSON.stringify(sorted))
 }
 
-interface Row { check: string; status: 'PASS' | 'FAIL' | 'WARN' | 'INFO'; detail: string }
-function report(title: string, rows: Row[], json: boolean): number {
+export interface Row { check: string; status: 'PASS' | 'FAIL' | 'WARN' | 'INFO'; detail: string }
+export function report(title: string, rows: Row[], json: boolean): number {
   const failed = rows.filter((r) => r.status === 'FAIL').length
   if (json) { printJson({ title, ok: failed === 0, checks: rows }); return failed ? 1 : 0 }
   console.log(c.bold(title))
@@ -130,6 +130,7 @@ export async function verifyCommit(ctx: ReturnType<typeof repoCtx>, shaArg: stri
 
 export async function verifyCmd(argv: string[]): Promise<number> {
   const [sub, ...rest] = argv
+  if (sub === 'rebuild') { const { rebuildCmd } = await import('./rebuild.ts'); return rebuildCmd(rest) }
   const p = parse(rest)
   const json = flag(p.values.json)
   if (sub === 'site') return verifySite(primaryHost(str(p.values.host)), json)

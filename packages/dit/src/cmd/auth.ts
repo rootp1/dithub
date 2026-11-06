@@ -124,6 +124,7 @@ export async function authCmd(argv: string[]): Promise<number> {
   if (sub === 'status' || sub === undefined) return authStatus(rest)
   if (sub === 'login') return login(rest)
   if (sub === 'logout') return logout(rest)
+  if (sub === 'username') return (await import('./extra.ts')).setUsername(rest)
   needArg({ values: {}, positionals: [] }, 0, 'status|login|logout')
   return 2
 }

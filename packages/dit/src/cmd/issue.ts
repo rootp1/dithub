@@ -55,12 +55,40 @@ export async function issueCmd(argv: string[]): Promise<number> {
       return 0
     }
     case 'comment': {
+      if (p.positionals[0] === 'edit' || p.positionals[0] === 'delete') {
+        const id = intArg(needArg({ ...p, positionals: p.positionals.slice(1) }, 0, 'comment-id'), 'comment-id')
+        if (p.positionals[0] === 'delete') { await ctx.api.del(`${ctx.R}/comments/${id}`); if (json) printJson({ ok: true, id }); else info(`Deleted comment ${id}.`); return 0 }
+        let body = str(p.values.body)
+        if (!body) body = editText('\n# Write the new comment text. Lines starting with # are ignored.\n')
+        if (!body) throw new DitError('aborted: empty comment')
+        await ctx.api.patch(`${ctx.R}/comments/${id}`, { body })
+        if (json) printJson({ ok: true, id }); else info(`${c.green('Updated')} comment ${id}.`)
+        return 0
+      }
       const n = num()
       let body = str(p.values.body)
       if (!body) body = editText('\n# Write your comment. Lines starting with # are ignored.\n')
       if (!body) throw new DitError('aborted: empty comment')
       const r = await ctx.api.post(`${ctx.R}/issues/${n}/comments`, { body })
       if (json) printJson(r); else info(`${c.green('Commented')} on #${n}.`)
+      return 0
+    }
+    case 'edit': {
+      const n = num()
+      let title = str(p.values.title), body = str(p.values.body)
+      if (title === undefined && body === undefined) {
+        const cur = await ctx.api.get<Issue>(`${ctx.R}/issues/${n}`)
+        const t = splitTitleBody(editText(`${cur.title}\n\n${cur.body ?? ''}\n# First line is the title; the rest is the description. Lines starting with # are ignored.\n`))
+        title = t.title; body = t.body
+        if (!title) throw new DitError('aborted: empty title')
+      }
+      const i = await ctx.api.patch<Issue>(`${ctx.R}/issues/${n}`, { ...(title !== undefined ? { title } : {}), ...(body !== undefined ? { body } : {}) })
+      if (json) printJson(i); else info(`${c.green('Updated')} #${n}.`)
+      return 0
+    }
+    case 'events': {
+      const r = await ctx.api.get<{ events: Array<{ event: string; actor: string | null; payload: unknown; createdAt: string }> }>(`${ctx.R}/issues/${num()}/events`)
+      if (json) printJson(r.events); else console.log(table(['WHEN', 'ACTOR', 'EVENT', 'DETAIL'], r.events.map((e) => [ago(e.createdAt), e.actor ?? '-', e.event, trunc(JSON.stringify(e.payload ?? {}), 60)])))
       return 0
     }
     case 'close': case 'reopen': {

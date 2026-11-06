@@ -12,6 +12,7 @@ import { orgCmd } from './cmd/org.ts'
 import { prCmd } from './cmd/pr.ts'
 import { protect, repoCmd } from './cmd/repo.ts'
 import { sessionCmd } from './cmd/session.ts'
+import { deploymentsCmd, labelCmd, nameCmd, tokenCmd } from './cmd/extra.ts'
 import { verifyCmd } from './cmd/verify.ts'
 import { TOP, helpFor } from './help.ts'
 import { e } from './ui.ts'
@@ -21,7 +22,7 @@ import { printJson } from './ui.ts'
 type Handler = (argv: string[]) => Promise<number> | number
 export const COMMANDS: Record<string, Handler> = {
   login, logout, whoami, auth: authCmd, clone, init, repo: repoCmd, protect, issue: issueCmd, pr: prCmd, org: orgCmd,
-  session: sessionCmd, verify: verifyCmd, log: logCmd, credential, completion,
+  recover: (argv) => import('./cmd/recover.ts').then((m) => m.recoverCmd(argv)), session: sessionCmd, verify: verifyCmd, name: nameCmd, deployments: deploymentsCmd, label: labelCmd, token: tokenCmd, log: logCmd, credential, completion,
   version: (argv) => { if (argv.includes('--json')) printJson({ version: VERSION }); else console.log(`dit ${VERSION}`); return 0 },
 }
 

@@ -4,6 +4,7 @@ import { DitError, UsageError } from '../errors.ts'
 import { findToken, primaryHost } from '../config.ts'
 import { configureCredentialHelper, currentBranch, git, gitInherit, hasRemote, inferFromGit, toplevel, withHelperEnv } from '../git.ts'
 import { repoCtx } from '../repoctx.ts'
+import { repoBrowse } from './extra.ts'
 import { c, info, printJson, table, ago } from '../ui.ts'
 
 const PERMS = ['read', 'triage', 'write', 'maintain', 'admin']
@@ -44,7 +45,7 @@ export async function repoCmd(argv: string[]): Promise<number> {
       await createRepoRemote({ name, org: str(p.values.org), visibility: flag(p.values.private) && !flag(p.values.public) ? 'private' : 'public', description: str(p.values.description), host: str(p.values.host), cwd: top, push: flag(p.values.push), json: flag(p.values.json) })
       return 0
     }
-    case 'list': case 'ls': {
+    case 'list': {
       const p = parse(rest, { owner: { type: 'string' }, limit: { type: 'string', short: 'L' } }, { allowPositionals: false })
       const host = primaryHost(str(p.values.host))
       const r = await apiFor(host, { flagHost: str(p.values.host) }).get<{ repos: Array<{ owner: string; name: string; description: string | null; visibility: string; pushedAt: string | null }> }>('/api/repos')
@@ -71,6 +72,7 @@ export async function repoCmd(argv: string[]): Promise<number> {
       if (branches.length) console.log(`branches: ${branches.map((b) => b.name.slice(11)).join(', ')}`)
       return 0
     }
+    case 'ls': case 'cat': case 'commits': case 'ledger': return repoBrowse(sub, rest)
     case 'collaborators': case 'collab': return collaborators(rest)
     case 'grant-team': {
       const p = parse(rest)

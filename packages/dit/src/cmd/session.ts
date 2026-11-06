@@ -8,6 +8,7 @@ import { currentSession, primaryHost, setCurrentSession, type SessionRef } from 
 import { git, toplevel } from '../git.ts'
 import { extractTar } from '../tar.ts'
 import { repoCtx } from '../repoctx.ts'
+import { sessionCalls } from './extra.ts'
 import { ago, c, countdown, info, printJson, table, trunc } from '../ui.ts'
 
 interface Sess { id: string; owner?: string; repo?: string; issueNumber: number; user: string; createdBy: string; role: string; allowedPaths: string[]; ref: string; status: string; expiresAt: string; createdAt: string }
@@ -165,6 +166,7 @@ export async function sessionCmd(argv: string[]): Promise<number> {
       if (json) printJson({ ok: true, id: s.id }); else info(`Session ${s.id} ended.`)
       return 0
     }
+    case 'calls': { const s = active(host, p); return sessionCalls(mkApi(), s.id, json) }
     case 'create': {
       const ctx = repoCtx(p.values)
       const issue = str(p.values.issue), login = str(p.values.login), role = str(p.values.role) ?? 'contractor'

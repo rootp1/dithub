@@ -22,7 +22,12 @@ Platform commands
   org list|view|create|members|team|log
   session list|open|issue|ls|cat|export|ask|summarize|propose|end   task-scoped access
   session create|revoke|events       (maintainers)
-  verify site|commit <sha>           check the site / a commit against Sepolia and Arkiv
+  label list|create|edit|delete      issue labels
+  token create                       mint an extra personal access token (never echoed to a terminal)
+  name resolve <owner/repo>          repo id, claimant and Arkiv entity of a name
+  deployments [list|latest]          release history (Arkiv, with Postgres fallback) and attestations
+  verify site|commit|rebuild         check the site / a commit / the on-chain release against its public source
+  recover <repo> [dir]               rebuild a repo from Arkiv alone, without the Dithub server
   log [--anchors]                    git log; --anchors adds Sepolia and Arkiv tx per commit
   credential get|store|erase         git credential helper (called by git)
   completion bash|zsh                print a shell completion script
@@ -62,13 +67,15 @@ Prints the login you are authenticated as; exits 1 when not logged in.
 Examples:
   dit whoami
   dit whoami --json`,
-  auth: `dit auth [status|login|logout]
+  auth: `dit auth [status|login|logout|username <new-login>]
 
 Shows each host you hold credentials for, whether the token still works, and where it comes from.
 
+  dit auth username <new-login>   rename your account (PATCH /api/me); remotes with the old name need set-url
+
 Examples:
   dit auth status
-  dit auth status --json`,
+  dit auth username alice`,
   clone: `dit clone <target> [dir] [git clone flags...]
 
 target is owner/repo, owner/repo@host, or a full Dithub URL. The repo is resolved through the API first
@@ -96,6 +103,10 @@ Examples:
         inside a git repo: adds the origin remote (and with --push pushes the current branch)
   dit repo list [--owner login]
   dit repo view [owner/repo]
+  dit repo ls [path] [--ref r]      browse the tree without cloning (normal permissions)
+  dit repo cat <path> [--ref r]     print a file
+  dit repo commits [-L n]           commits with anchor status and Sepolia / Arkiv tx
+  dit repo ledger                   L1 anchors and Arkiv entities (with expiry blocks)
   dit repo collaborators list|add <login> [-p read|triage|write|maintain|admin]|remove <login>
   dit repo grant-team <team> <permission>        (organisation repos)
   (repo delete is not available: the API has no delete endpoint)
@@ -118,7 +129,10 @@ Examples:
   dit issue list [-s open|closed|all] [-l label] [-a assignee] [--author login] [-q text] [-L n]
   dit issue view <n> [--comments]
   dit issue create [-t title] [-b body] [-l label] [-a login]     (no -t: opens $EDITOR)
+  dit issue edit <n> [-t title] [-b body]      (no flags: opens $EDITOR)
+  dit issue events <n>                          timeline
   dit issue comment <n> [-b text]
+  dit issue comment edit <id> [-b text]       dit issue comment delete <id>
   dit issue close <n> [--reason completed|not_planned]      dit issue reopen <n>
   dit issue label <n> bug,help-wanted | --add a --remove b
   dit issue assign <n> <login>... [--unassign]
@@ -128,11 +142,13 @@ Examples:
   dit issue create -t "Login fails on Safari" -b "Steps: ..."
   dit issue list -s all --json
   dit issue close 12 --reason not_planned`,
-  pr: `dit pr <list|view|create|diff|files|checks|review|merge|close|reopen|checkout> [-R owner/repo]
+  pr: `dit pr <list|view|create|edit|comment|diff|files|checks|review|merge|close|reopen|checkout> [-R owner/repo]
 
   dit pr list [-s open|closed|merged|all]
   dit pr view <n> [--comments]
   dit pr create [-t title] [-b body] [--head branch] [--base branch] [--draft] [--push]
+  dit pr edit <n> [-t title] [-b body]
+  dit pr comment <n> -b text
   dit pr diff <n>        dit pr files <n>
   dit pr checks <n>      reviews, required status checks, merge blockers (exit 1 if it cannot merge)
   dit pr review <n> --approve | --request-changes -b text | --comment -b text
@@ -172,6 +188,7 @@ Developer:
   dit session ask "question"       sealed 0G assistant (prints the 0G request id and model; refusals are marked)
   dit session summarize
   dit session propose [-t title] [-b body]    (run inside the exported folder) diff vs baseline -> proposal -> PR
+  dit session calls                past assistant calls: model, 0G request id, sealed / refused badges
   dit session end
 Maintainers:
   dit session create --issue N --login dev [--role contractor|employee|maintainer] --path src/payments [--path ..] [--ttl 480] [-R o/r]
@@ -183,7 +200,16 @@ Example workflow:
   dit session export -o work && cd work
   $EDITOR src/payments/retry.ts
   dit session propose -t "Add retry backoff"`,
-  verify: `dit verify site [--host URL] | dit verify commit <sha> [-R owner/repo]
+  verify: `dit verify site [--host URL] | dit verify commit <sha> [-R owner/repo] | dit verify rebuild [...]
+
+  rebuild  prove the on-chain release equals a fresh build of the PUBLIC SOURCE at that commit:
+             dit verify rebuild [--release N | --commit SHA] [--source URL_OR_PATH] [--site URL]
+                                [--sandbox auto|docker|none] [--unsafe-local-build] [--json]
+           Fetches only that commit (default repo https://github.com/rootp1/dithub.git, or $DIT_SOURCE_REPO),
+           builds it exactly like CI (GIT_COMMIT=<sha> bun apps/web/build.ts) inside Docker (--network none,
+           source read-only, pinned bun image) and re-hashes every output file itself. Without Docker it refuses,
+           unless you pass both \`--sandbox none --unsafe-local-build\` (empty-environment local child).
+           Then compares with the on-chain bundleHash and the live site. Exit 0 only when all match.
 
   site     recompute the hashes of the files the site serves and compare them with the latest release and
            attestation on Sepolia (manual JSON-RPC, no libraries; override RPC with DIT_RPC_URL)
@@ -192,7 +218,9 @@ Example workflow:
 Examples:
   dit verify site
   dit verify commit HEAD
-  dit verify commit 3f2a9c1 -R alice/web --json`,
+  dit verify commit 3f2a9c1 -R alice/web --json
+  dit verify rebuild --release 11
+  dit verify rebuild --source ~/src/dithub --sandbox none --unsafe-local-build`,
   log: `dit log [--anchors] [git log flags]
 
 Without --anchors this is git log. With --anchors it lists, for each commit of the current branch that
@@ -211,6 +239,52 @@ do nothing. Configured automatically by dit clone / dit init --remote / dit repo
 Examples:
   source <(dit completion bash)
   dit completion zsh > "\${fpath[1]}/_dit"`,
+  label: `dit label list|create|edit|delete [-R owner/repo]
+
+  dit label list
+  dit label create <name> [--color ff0000] [--description text]
+  dit label edit <name> [--name new] [--color hex] [--description text]
+  dit label delete <name>
+
+Example:
+  dit label create bug --color d73a4a -d "Something is broken"`,
+  token: `dit token create [--name N] [--out FILE | --show]
+
+Creates an additional personal access token (for CI and the like). The token is printed once, and only when
+stdout is not a terminal (pipe it) or with --show; otherwise write it to a file with --out (mode 0600).
+
+Examples:
+  dit token create --name ci --out ./ci-token
+  dit token create --name ci | gh secret set DITHUB_TOKEN`,
+  name: `dit name resolve <owner/repo> [--host URL]
+
+Prints the repo id, the claimant wallet and the Arkiv name entity.
+
+Example:
+  dit name resolve rootp1/smoke-mw4iu8wl`,
+  deployments: `dit deployments [list|latest] [-L n]
+
+Release history (read from Arkiv; "source" says arkiv or postgres-fallback): release id, commit, bundleHash,
+attestation result and the publish / attest transaction hashes.
+
+Examples:
+  dit deployments
+  dit deployments latest --json`,
+  recover: `dit recover <repo-id|owner/repo> [dir] [--manifest-hash 0x...] [--access-key KEY] [--arkiv-only]
+
+Rebuilds a repository from Arkiv ALONE, without the Dithub server: fetches the manifest and chunks, verifies the
+manifest hash and every chunk hash, materialises a git clone and runs git fsck. Without --manifest-hash it uses
+the newest 'push' activity entity of the repo. owner/repo is resolved through the API, or through Arkiv name
+entities when the server is unreachable (or with --arkiv-only).
+
+Needs an Arkiv access key (https://hub.arkiv.network/access-keys): --access-key or $ARKIV_ACCESS_KEY.
+Only small PUBLIC repos on the default branch are mirrored to Arkiv, and entities expire after about 182 days
+unless renewed.
+
+Examples:
+  dit recover rootp1/smoke-mw4iu8wl
+  dit recover 0xbcd0...e436 ./rescued --manifest-hash 0x9e83...6be5
+  dit recover alice/web --arkiv-only --json`,
   version: `dit version [--json]    print the version`,
 }
 

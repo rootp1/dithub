@@ -48,6 +48,7 @@ function mkEnv(name: string) {
 }
 const A = mkEnv('alice'), B = mkEnv('bob'), ANON = mkEnv('anon')
 const secrets: string[] = []
+let bobTok = ''
 
 function dit(who: { env: Record<string, string> }, args: string[], o: { cwd?: string; input?: string } = {}) {
   const r = Bun.spawnSync([DIT, ...args], { cwd: o.cwd ?? work, env: who.env, ...(o.input !== undefined ? { stdin: Buffer.from(o.input) } : {}), timeout: 180_000 })
@@ -126,7 +127,7 @@ console.log('-- authentication')
 }
 { // CI-style login for bob: token on stdin
   const tokB = ((await (await bob.req('/api/tokens', { method: 'POST', body: '{"name":"e2e-b"}' })).json()) as { token: string }).token
-  secrets.push(tokB)
+  secrets.push(tokB); bobTok = tokB
   const r = dit(B, ['login', '--token-stdin'], { input: tokB + '\n' })
   ok(r.code === 0, 'dit login --token-stdin'); noLeak(r.all, 'token-stdin output')
   const w = dit(B, ['whoami']); ok(w.code === 0 && w.out.trim() === bLogin, 'bob whoami')
@@ -200,6 +201,38 @@ let issueNo = 0
   ok(dit(A, ['issue', 'close', String(issueNo)], { cwd: clone }).all.includes('closed'), 'dit issue close')
   ok(/now open/.test(dit(A, ['issue', 'reopen', String(issueNo)], { cwd: clone }).all), 'dit issue reopen')
   const bad = dit(A, ['issue', 'label', String(issueNo), 'no-such-label'], { cwd: clone }); ok(bad.code === 1 && /unknown label/.test(bad.err), 'API reason (unknown label) surfaces with exit 1')
+  console.log('-- labels, edits, browsing')
+  ok(dit(A, ['label', 'create', 'feat', '--color', '00ff00', '-d', 'new things'], { cwd: clone }).code === 0, 'dit label create')
+  ok(dit(A, ['label', 'list', '--json'], { cwd: clone }).out.includes('"feat"'), 'dit label list')
+  ok(dit(A, ['label', 'edit', 'feat', '--color', '0000ff'], { cwd: clone }).code === 0 && dit(A, ['label', 'list', '--json'], { cwd: clone }).out.includes('0000ff'), 'dit label edit')
+  ok(dit(A, ['label', 'delete', 'feat'], { cwd: clone }).code === 0 && !dit(A, ['label', 'list', '--json'], { cwd: clone }).out.includes('"feat"'), 'dit label delete')
+  ok(dit(A, ['issue', 'edit', String(issueNo), '-t', 'Payments retry is really broken'], { cwd: clone }).code === 0 && dit(A, ['issue', 'view', String(issueNo)], { cwd: clone }).out.includes('really broken'), 'dit issue edit')
+  ok(dit(A, ['issue', 'events', String(issueNo)], { cwd: clone }).out.includes('opened'), 'dit issue events')
+  const withComments = jsonOf(dit(A, ['issue', 'view', String(issueNo), '--json'], { cwd: clone }).out) as { commentList: Array<{ id: number; body: string }> } | null
+  const cid = withComments?.commentList?.[0]?.id ?? 0
+  ok(cid > 0 && dit(A, ['issue', 'comment', 'edit', String(cid), '-b', 'edited comment'], { cwd: clone }).code === 0 && dit(A, ['issue', 'view', String(issueNo), '--comments'], { cwd: clone }).out.includes('edited comment'), 'dit issue comment edit')
+  ok(dit(A, ['issue', 'comment', 'delete', String(cid)], { cwd: clone }).code === 0 && !dit(A, ['issue', 'view', String(issueNo), '--comments'], { cwd: clone }).out.includes('edited comment'), 'dit issue comment delete')
+  const lsB = dit(B, ['repo', 'ls', '-R', projRepo]); ok(lsB.code === 1, 'repo ls on a private repo without access fails (no session header, normal permissions)')
+  const rls = dit(A, ['repo', 'ls'], { cwd: clone }); ok(rls.code === 0 && rls.out.includes('README.md') && rls.out.includes('src/'), 'dit repo ls (no clone needed)')
+  ok(dit(A, ['repo', 'ls', 'src/payments'], { cwd: clone }).out.includes('pay.ts'), 'dit repo ls <path>')
+  ok(dit(A, ['repo', 'cat', 'src/payments/pay.ts'], { cwd: clone }).out.includes('export const pay'), 'dit repo cat')
+  const rc = dit(A, ['repo', 'commits', '--json'], { cwd: clone }); const commits = jsonOf(rc.out) as Array<{ oid: string; anchor: { status: string } }> | null
+  ok(!!commits?.length && commits.every((x) => typeof x.anchor?.status === 'string'), 'dit repo commits --json has anchor status')
+  ok(/COMMIT\s+SUBJECT/.test(dit(A, ['repo', 'commits'], { cwd: clone }).out), 'dit repo commits table')
+  const led = dit(A, ['repo', 'ledger'], { cwd: clone }); ok(led.code === 0 && led.out.includes('L1 anchors') && led.out.includes('Arkiv entities'), 'dit repo ledger')
+  const nm = dit(A, ['name', 'resolve', projRepo]); ok(nm.code === 0 && /repoId:\s+0x[0-9a-f]{64}/.test(nm.out), 'dit name resolve prints the repo id')
+  ok(dit(A, ['name', 'resolve', `${aLogin}/nope-${suffix}`]).code === 1, 'dit name resolve of an unknown name fails')
+  const dep = dit(A, ['deployments', '--json']); ok(dep.code === 0 ? /"source"/.test(dep.out) : /unavailable|server error/.test(dep.err), 'dit deployments (list or a clean 503 when Arkiv is unreachable)')
+  const depl = dit(A, ['deployments', 'latest', '--json']); ok(depl.code === 0 ? /"deployment"/.test(depl.out) : /unavailable|server error|not found/.test(depl.err), 'dit deployments latest')
+  const tk = dit(A, ['token', 'create', '--name', 'e2e-extra']); const extra = tk.out.trim()
+  ok(tk.code === 0 && extra.startsWith('dht_'), 'dit token create prints the token when stdout is not a TTY'); secrets.push(extra)
+  ok(dit({ env: { ...ANON.env, DIT_TOKEN: extra } }, ['whoami']).out.trim() === aLogin, 'the new token works')
+  const tf = join(work, 'tok.txt'); const tk2 = dit(A, ['token', 'create', '--out', tf]); const tokFromFile = readFileSync(tf, 'utf8').trim(); secrets.push(tokFromFile)
+  ok(tk2.code === 0 && (statSync(tf).mode & 0o777) === 0o600 && !tk2.all.includes(tokFromFile), 'dit token create --out writes a 0600 file and prints nothing secret')
+  noLeak(tk.err + tk2.all, 'token create diagnostics')
+  const rb = dit(A, ['verify', 'rebuild', '--sandbox', 'none']); ok(rb.code === 2 && /unsafe-local-build/.test(rb.all), 'verify rebuild: --sandbox none alone is a usage error')
+  const rb2 = dit(A, ['verify', 'rebuild', '--release', '1', '--commit', 'a'.repeat(40)]); ok(rb2.code === 2, 'verify rebuild: --release and --commit are exclusive')
+  const rec0 = dit(A, ['recover', 'x/y']); ok(rec0.code === 2 && /access-keys/.test(rec0.all), 'dit recover without an Arkiv key explains where to get one')
   const noRepo = dit(A, ['issue', 'list'], { cwd: work }); ok(noRepo.code === 2, 'no repo to infer is a usage error (exit 2)')
 }
 
@@ -228,6 +261,8 @@ console.log('-- pull requests')
   const chk2 = dit(A, ['pr', 'checks', n], { cwd: clone }); ok(chk2.code === 0, 'dit pr checks passes after approval')
   const co = join(work, 'co'); dit(A, ['clone', projRepo, co]); const pc = dit(A, ['pr', 'checkout', n], { cwd: co })
   ok(pc.code === 0 && git(A, co, 'branch', '--show-current').out.trim() === 'feature' && existsSync(join(co, 'feature.txt')), 'dit pr checkout <n> fetches the head branch')
+  ok(dit(A, ['pr', 'comment', n, '-b', 'looks good to me'], { cwd: clone }).code === 0 && dit(A, ['pr', 'view', n, '--comments'], { cwd: clone }).out.includes('looks good to me'), 'dit pr comment')
+  ok(dit(A, ['pr', 'edit', n, '-t', 'Add feature v2'], { cwd: clone }).code === 0 && dit(A, ['pr', 'view', n], { cwd: clone }).out.includes('Add feature v2'), 'dit pr edit')
   const mg = dit(A, ['pr', 'merge', n, '--squash'], { cwd: clone }); ok(mg.code === 0 && /Merged/.test(mg.all), 'dit pr merge --squash')
   ok(dit(A, ['pr', 'list', '-s', 'merged', '--json'], { cwd: clone }).out.includes('Add feature'), 'merged PR is listed')
   dit(A, ['switch', 'main'], { cwd: clone }); ok(dit(A, ['pull'], { cwd: clone }).code === 0 && existsSync(join(clone, 'feature.txt')), 'dit pull brings the merge')
@@ -272,6 +307,7 @@ console.log('-- task-scoped session')
   mkdirSync(join(exp, 'src/other'), { recursive: true }); writeFileSync(join(exp, 'src/other/hack.ts'), 'export {}\n')
   const bad = dit(B, ['session', 'propose', '-t', 'sneaky'], { cwd: exp }); ok(bad.code === 1 && /outside the session scope/.test(bad.all) && bad.all.includes('src/other/hack.ts'), 'out-of-scope patch is rejected (422) and the paths are listed')
   const ev = dit(A, ['session', 'events', id], { cwd: clone }); ok(ev.code === 0 && /denied/.test(ev.out) && /proposal_rejected/.test(ev.out) && /export/.test(ev.out), 'maintainer: dit session events shows denials and rejections')
+  const calls = dit(B, ['session', 'calls']); ok(calls.code === 0, 'dit session calls lists assistant calls (badges for refused/sealed)'); if (process.env.ZG_API_KEY) ok(/REFUSED/.test(calls.out), 'the refused question shows a REFUSED badge')
   ok(dit(B, ['session', 'end']).code === 0, 'dit session end')
   ok(dit(B, ['session', 'ls']).code === 1, 'no active session after end')
   const mk2 = dit(A, ['session', 'create', '--issue', String(issueNo), '--login', bLogin, '--path', 'src/payments', '--json'], { cwd: clone }); const id2 = (jsonOf(mk2.out) as { id: string } | null)?.id ?? ''
@@ -295,9 +331,25 @@ console.log('-- anchors and verification')
 }
 
 // =================== logout ===================
+console.log('-- recover and rebuild (network)')
+{
+  if (process.env.ARKIV_ACCESS_KEY) {
+    const dest = join(work, 'recovered')
+    const rr = dit({ env: { ...A.env, ARKIV_ACCESS_KEY: process.env.ARKIV_ACCESS_KEY } }, ['recover', 'rootp1/smoke-mw4iu8wl', dest, '--arkiv-only'])
+    ok(rr.code === 0 && /git fsck ok/.test(rr.out) && existsSync(join(dest, 'hello.txt')), 'dit recover rebuilds a repo from Arkiv alone (production smoke repo)')
+    ok(!rr.all.includes(process.env.ARKIV_ACCESS_KEY), 'recover output never contains the Arkiv key')
+  } else console.log('SKIP  dit recover (ARKIV_ACCESS_KEY unset)')
+  if (git(A, root, 'cat-file', '-e', '4c22d2f6deb3d70950f183246c12e6d66184abfb^{commit}').code === 0) {
+    const vr = dit(A, ['verify', 'rebuild', '--release', '11', '--source', root, '--sandbox', 'none', '--unsafe-local-build']); ok(vr.code === 0 && /source == on-chain release\s+MATCH/.test(vr.out), 'dit verify rebuild --release 11 MATCH')
+  } else console.log('SKIP  dit verify rebuild (commit 4c22d2f not in the local repo)')
+}
+
 console.log('-- logout')
 {
-  const tokB = secrets[secrets.length - 1]!
+  const tokB = bobTok
+  const newName = `bob-${suffix}`
+  const un = dit(B, ['auth', 'username', newName]); ok(un.code === 0 && dit(B, ['whoami']).out.trim() === newName, 'dit auth username renames the account')
+  ok(JSON.parse(readFileSync(join(B.cfg, 'credentials.json'), 'utf8')).hosts[BASE].login === newName, 'stored credential login follows the rename')
   const lo = dit(B, ['logout']); ok(lo.code === 0 && !existsSync(join(B.cfg, 'credentials.json')), 'dit logout deletes the local credential')
   const me = await (await fetch(`${BASE}/api/me`, { headers: { authorization: `Bearer ${tokB}` } })).json() as { user: unknown }
   ok(me.user === null, 'dit logout revoked the token on the server')

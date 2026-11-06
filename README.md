@@ -123,4 +123,6 @@ dit login && dit clone alice/web
 dit log --anchors && dit verify site
 ```
 
+`dit verify rebuild` proves the on-chain release equals a fresh Docker build of the public source; `dit recover owner/repo` rebuilds a repo from Arkiv alone (needs an Arkiv access key). Also: `repo ls|cat|commits|ledger`, `label`, `name resolve`, `deployments`, `token create`.
+
 Full reference: [docs/dit-cli.md](docs/dit-cli.md). Tests: `bun run test:dit`, `bun scripts/e2e-dit.ts`.

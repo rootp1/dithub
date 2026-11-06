@@ -23,7 +23,7 @@
     "api": "bun apps/api/src/index.ts",
     "worker": "bun apps/worker/src/index.ts",
     "build:app": "bun apps/web/build.ts",
-    "build:dit": "bun build --compile packages/dit/src/index.ts --outfile packages/dit/dist/dit",
+    "build:dit": "bun build --compile --no-compile-autoload-dotenv packages/dit/src/index.ts --outfile packages/dit/dist/dit",
     "test:dit": "bun test packages/dit"
   },
   "dependencies": {

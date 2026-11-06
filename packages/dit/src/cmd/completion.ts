@@ -1,13 +1,13 @@
 import { UsageError } from '../errors.ts'
 
 export const TREE: Record<string, string[]> = {
-  login: [], logout: [], whoami: [], auth: ['status', 'login', 'logout'], clone: [], init: [], credential: ['get', 'store', 'erase'],
-  repo: ['create', 'list', 'view', 'collaborators', 'grant-team'], protect: ['set', 'remove', 'list'],
-  issue: ['list', 'view', 'create', 'comment', 'close', 'reopen', 'label', 'assign', 'import'],
-  pr: ['list', 'view', 'create', 'diff', 'files', 'checks', 'review', 'merge', 'close', 'reopen', 'checkout'],
+  login: [], logout: [], whoami: [], auth: ['status', 'login', 'logout', 'username'], clone: [], init: [], credential: ['get', 'store', 'erase'],
+  repo: ['create', 'list', 'view', 'ls', 'cat', 'commits', 'ledger', 'collaborators', 'grant-team'], label: ['list', 'create', 'edit', 'delete'], token: ['create'], name: ['resolve'], deployments: ['list', 'latest'], recover: [], protect: ['set', 'remove', 'list'],
+  issue: ['list', 'view', 'create', 'edit', 'events', 'comment', 'close', 'reopen', 'label', 'assign', 'import'],
+  pr: ['list', 'view', 'create', 'edit', 'comment', 'diff', 'files', 'checks', 'review', 'merge', 'close', 'reopen', 'checkout'],
   org: ['list', 'view', 'create', 'members', 'team', 'log'],
-  session: ['list', 'open', 'issue', 'ls', 'cat', 'export', 'ask', 'summarize', 'propose', 'end', 'create', 'revoke', 'events'],
-  verify: ['site', 'commit'], log: [], completion: ['bash', 'zsh'], version: [], help: [],
+  session: ['list', 'open', 'issue', 'ls', 'cat', 'export', 'ask', 'summarize', 'propose', 'calls', 'end', 'create', 'revoke', 'events'],
+  verify: ['site', 'commit', 'rebuild'], log: [], completion: ['bash', 'zsh'], version: [], help: [],
 }
 const GIT = 'push pull fetch status add commit branch checkout switch merge rebase diff stash remote tag reset restore show'
 

@@ -87,18 +87,25 @@ Global: `--host URL`, `--json`, `-R/--repo owner/repo`, `-h/--help`. `dit <comma
 | Command | What it does |
 |---|---|
 | `login [--token-stdin] [--no-browser]`, `logout`, `whoami`, `auth status` | authentication |
+| `auth username <new-login>` | rename your account (`PATCH /api/me`); the stored credential follows |
+| `token create [--name N] [--out FILE \| --show]` | mint another personal access token; printed once, only when stdout is not a TTY or with `--show`, else written to `--out` (mode 0600) |
 | `clone <owner/repo \| owner/repo@host \| URL> [dir] [git flags]` | clone (flags such as `--depth 1 -b dev` pass to git) |
 | `init [dir] [--remote[=name]] [--org o] [--private] [--description t]` | `git init`, optionally create the platform repo + `origin` |
 | `repo create [name] [--org o] [--private] [-d t] [--push]` | create a repo; inside a git repo it adds `origin` and can push |
 | `repo list [--owner x]`, `repo view [owner/repo]` | list / show (view infers from `origin`) |
+| `repo ls [path] [--ref r]`, `repo cat <path> [--ref r]`, `repo commits [-L n]`, `repo ledger` | browse tree / file / commits (with anchor status and Sepolia + Arkiv tx) / ledger (L1 anchors, Arkiv entities with expiry blocks) without cloning; normal permissions, no session header |
+| `name resolve <owner/repo>` | repo id, claimant and Arkiv name entity |
+| `deployments [list\|latest]` | release history from Arkiv (`source` says `arkiv` or `postgres-fallback`): release, commit, bundleHash, attestation, tx hashes |
+| `label list\|create <name> [--color hex] [-d text]\|edit <name>\|delete <name>` | labels |
 | `repo collaborators list\|add <login> [-p perm]\|remove <login>`, `repo grant-team <team> <perm>` | access |
 | `repo delete` | not available: the API has no delete endpoint |
 | `protect set <pattern> [--approvals N] [--no-require-pr] [--allow-force-push] [--allow-deletions]`, `protect remove <pattern>`, `protect list` | branch protection |
-| `issue list\|view\|create\|comment\|close\|reopen\|label\|assign\|import` | issues (`create` without `-t` opens `$EDITOR`) |
-| `pr list\|view\|create\|diff\|files\|checks\|review\|merge\|close\|reopen\|checkout` | pull requests |
+| `issue list\|view\|create\|edit\|events\|comment\|close\|reopen\|label\|assign\|import`, `issue comment edit <id>`, `issue comment delete <id>` | issues (`create`/`edit` without flags open `$EDITOR`) |
+| `pr list\|view\|create\|edit\|comment\|diff\|files\|checks\|review\|merge\|close\|reopen\|checkout` | pull requests (`pr comment` uses the shared issue-thread endpoint) |
 | `org list\|view\|create\|members add\|remove\|team create\|add\|remove\|log` | organisations and teams |
-| `session ...` | task-scoped sessions (below) |
-| `verify site \| verify commit <sha>` | independent verification |
+| `session ...` | task-scoped sessions (below), including `session calls` (assistant history with sealed / REFUSED badges) |
+| `verify site \| verify commit <sha> \| verify rebuild [...]` | independent verification (see below) |
+| `recover <repo-id\|owner/repo> [dir]` | rebuild a repo from Arkiv alone (see below) |
 | `log [--anchors]` | `git log`; `--anchors` adds anchoring status and tx hashes |
 | `credential get\|store\|erase` | git credential helper |
 | `completion bash\|zsh`, `version` | misc |
@@ -163,6 +170,72 @@ own staging area is untouched.
 - `dit verify commit <sha|HEAD> [-R o/r]` looks up the commit's anchors through the API, checks the L1 transaction
   receipt with `eth_getTransactionReceipt` (status success), and that the Arkiv entity is listed in
   `/api/repos/:o/:r/ledger`.
+
+- `dit verify rebuild [--release N | --commit SHA] [--source URL_OR_PATH] [--site URL] [--sandbox auto|docker|none] [--unsafe-local-build] [--json]`
+  proves that the on-chain release equals a fresh build of the PUBLIC SOURCE, so nobody has to trust the publisher.
+  It reads the release from DeployRegistry (`releaseCount` / `getRelease`; default the latest; `--commit` scans newest
+  first), decodes the right-aligned 20-byte git sha from the `commit` bytes32, fetches only that commit into a
+  fresh temp dir (default repo `https://github.com/rootp1/dithub.git`, or `$DIT_SOURCE_REPO`, or a local checkout
+  path; shallow `git fetch --depth 1 origin <sha>` with a full-fetch fallback), checks `git rev-parse HEAD` equals
+  the sha, and runs exactly what CI runs, `GIT_COMMIT=<sha> bun apps/web/build.ts`. It does **not** trust the built
+  `build.json`: it re-hashes every output file itself (sha256, sorted keys, bundleHash = sha256 of the JSON map, as
+  in `apps/web/build.ts`) and compares with the on-chain bundleHash, then with the live site (`--site`, default the
+  release url): source == release == live. On a mismatch the files that differ from the live site are listed.
+  Exit 0 only when everything matches, 1 on mismatch or failure, 2 on usage errors.
+  - Building untrusted code runs that repo's own build script. `--sandbox auto` (default) uses Docker:
+    `docker run --rm --network none --cap-drop ALL -v <src>:/src:ro -v <out>:/out -e GIT_COMMIT=<sha> oven/bun:<version>`
+    where `<version>` is the `bun-version` pinned in the checked-out `.github/workflows/ci.yml` (else your local bun, with
+    a warning); the source is copied to a writable temp dir inside the container. If Docker is missing or fails it
+    **refuses**; to build locally you must pass both `--sandbox none --unsafe-local-build`, which runs your local
+    bun in an empty-environment child (only `PATH`, `HOME=<temp dir>`, `GIT_COMMIT`; no inherited secrets).
+  - Limits: fetch 5 minutes, build 10 minutes, output at most 50 MB; temp dirs (under `~/.cache/dit-tmp` on macOS so
+    Docker VMs can mount them, else the system temp dir, or `$DIT_TMPDIR`) are always removed.
+  - Tested: the `--sandbox none` and the Docker variants both reproduce release 11 (commit `4c22d2f`) exactly.
+
+  Independent CI job (GitHub Actions) that fails if the published release is not reproducible from source:
+
+  ```yaml
+  # .github/workflows/verify-release.yml
+  name: verify-release
+  on:
+    schedule: [{ cron: '17 5 * * *' }]
+    workflow_dispatch: {}
+  jobs:
+    rebuild:
+      runs-on: ubuntu-latest          # Docker is available; the build runs with --network none
+      timeout-minutes: 20
+      steps:
+        - uses: oven-sh/setup-bun@v2.0.1
+          with: { bun-version: 1.4.4 }
+        - uses: actions/checkout@v4.2.2        # only to get the dit CLI
+        - run: bun run build:dit
+        - run: packages/dit/dist/dit verify rebuild --json | tee rebuild.json
+        - run: packages/dit/dist/dit verify site
+  ```
+
+## Censorship resistance: `dit recover`
+
+`dit recover <repo-id|owner/repo> [dir] [--manifest-hash 0x...] [--access-key KEY] [--arkiv-only]` rebuilds a
+repository from **Arkiv alone**, without the Dithub server: it fetches the manifest and the chunks, checks the
+manifest hash and every chunk hash, materialises a git clone (SDK `fetchRepositoryFromArkiv` + `cloneRepository`),
+runs `git fsck --strict`, and prints the repo id, the manifest hash, the recovered commit hash and the number of
+verified chunks.
+
+- `--manifest-hash` is optional. Without it dit queries Arkiv for the repo's newest activity entity of kind `push`
+  (schema `dheet-activity-v1`, attribute `repo` = repo id) and uses its `manifestHash`. Arkiv reads are untrusted
+  (anyone can write entities of these schemas); the manifest and chunks are hash-verified, but which push is
+  "newest" is Arkiv's answer, so pass `--manifest-hash` from a source you trust when it matters.
+- `owner/repo` is resolved through the API, or through Arkiv name entities (`dheet-name-v1`, first claim wins) when
+  the server is unreachable or with `--arkiv-only`. A raw `0x` repo id needs no resolution at all.
+- Arkiv reads need an access key: get one at <https://hub.arkiv.network/access-keys> and pass `--access-key` or set
+  `ARKIV_ACCESS_KEY`. dit scrubs the key from error messages (the RPC URL contains it).
+- Limits: the Arkiv path only has code for **small PUBLIC repos on the default branch** (the server mirrors only
+  those), and Arkiv entities **expire after about 182 days** unless renewed.
+- The SDK is loaded lazily (`await import`), so other commands stay fast; it adds about 0.8 MB to the compiled
+  binary (89.3 MB to 90.1 MB, most of which is the Bun runtime). The binary is built with
+  `--no-compile-autoload-dotenv` so a stray `.env` in the current directory is not read.
+- Verified against production: `dit recover rootp1/smoke-mw4iu8wl` yields manifest `0x9e83fe6b...` and commit
+  `d2d078e5...`, `git fsck` clean, both through the API and with `--arkiv-only`.
 
 ## Troubleshooting
 
