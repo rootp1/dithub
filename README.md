@@ -1,11 +1,91 @@
-# Dithub
+# 🪵 Dithub
 
-Dithub is a GitHub-style collaboration platform (repos, orgs and RBAC, issues, pull requests, task-scoped contractor sessions) whose history is mirrored to public
-infrastructure: every commit is recorded as an Arkiv entity carrying the Ethereum Sepolia anchor transaction, repo code is published to Arkiv, and the frontend you
-are served is provably the one released on-chain. It also contains the original protocol work: a Git-compatible decentralised remote (`git-remote-dithub`) with an
-SDK, CLI, indexer and Solidity contracts (see `plan.md`).
+*Code collaboration whose history lives on public infrastructure*
 
-Live: https://dithub.app (single Linode, Caddy TLS, Docker Compose). Licence: MIT.
+Dithub is a GitHub-style collaboration platform with repositories, organisations and RBAC, issues, pull requests and
+task-scoped contractor sessions. Unlike a conventional forge, its history is mirrored to public infrastructure: every
+commit is recorded as an [Arkiv](https://arkiv.network) entity carrying the anchor transaction, repository code is
+published to Arkiv, and the frontend you are served is provably the one that was released on-chain.
+
+The repository contains the full stack: an API (`apps/api`), a background worker (`apps/worker`), the web app
+(`apps/web`), a command-line client (`dit`), a VS Code extension, an SDK, Solidity contracts and a Chainlink CRE
+workflow. It also contains the original protocol work, a Git-compatible decentralised remote (`git-remote-dithub`);
+see [`plan.md`](plan.md).
+
+Live at <https://dithub.app> (single Linode, Caddy TLS, Docker Compose).
+
+## Features
+
+* **Familiar collaboration.** Repos, orgs, roles, branch protection, issues and pull requests, over plain Git smart HTTP.
+* **Public history.** Each push is anchored with one transaction to `RefRegistry`; per-commit activity and chunked
+  packfiles are published to Arkiv. If our server disappears, `dit recover` rebuilds a repo from Arkiv alone.
+* **Verifiable frontend.** Anyone can check that the files served by the site are the files released on-chain.
+* **Task sessions.** Assign one issue to a contractor and give them only the files in scope, with AI assistance running
+  on 0G Private Computer in private trust mode. Works from VS Code or the terminal.
+* **Privacy where it matters.** Private repos and orgs are never queued for the public ledger.
+
+## Installation
+
+**Requirements**
+
+* *macOS* or *Linux*
+* [Bun](https://bun.sh) 1.4.x
+* Git 2.30 or later
+* Docker (to run the platform locally)
+* [Foundry](https://getfoundry.sh) (only for the contracts)
+
+### 🖥️ The `dit` CLI
+
+> Requires Bun. There are no prebuilt binaries yet.
+
+Use Git for source control and `dit` for Dithub platform operations. `dit login` installs a host-scoped Git credential
+helper, so ordinary `git clone`, `fetch`, `pull` and `push` work for private repos without tokens in argv, URLs or
+`.git/config`.
+
+    bun install
+    bun link --cwd packages/dit        # puts `dit` on your PATH
+
+Or build one self-contained binary:
+
+    bun run build:dit
+    sudo cp packages/dit/dist/dit /usr/local/bin/dit
+
+Then:
+
+    dit login                          # prints a code; approve it in the browser
+    git clone https://dithub.app/git/alice/web
+    cd web && git pull && git push
+    dit issue create -t "Bug" -b "details"
+    dit pr create --push -t "Fix it"
+    dit repo commits                   # per-commit anchor and Arkiv transactions
+    dit verify site                    # does the served frontend match the release?
+
+`dit verify rebuild` proves the on-chain release equals a fresh Docker build of the public source, and
+`dit recover owner/repo` rebuilds a repo from Arkiv alone (needs an Arkiv access key).
+Full reference: [docs/dit-cli.md](docs/dit-cli.md).
+
+### 🧩 The VS Code extension
+
+> Requires VS Code 1.90 or later.
+
+    bun run package:vscode
+    code --install-extension packages/vscode/dithub-vscode.vsix --force
+
+Run **Dithub: Sign in**, then use **Assign with 0G** on an issue. See [docs/vscode-extension.md](docs/vscode-extension.md).
+The same workflow is available in the terminal with `dit task assign|connect|edit|ask|diff|submit`.
+
+### 📦 Running the platform from source
+
+    bun install
+    cp .env.example .env                                         # fill in values; never commit
+    docker compose -f infra/docker-compose.yml up -d --wait      # Postgres, Redis, Meilisearch, Mailpit
+    bun apps/api/src/migrate.ts                                  # applies packages/db/migrations/*.sql
+    bun apps/web/build.ts                                        # builds apps/web/dist and build.json
+    bun run api                                                  # API + web on :3000
+    bun run worker                                               # outbox, L1 anchoring, Arkiv, deployment mirror
+
+Environment variables are documented by name in `.env.example` and `infra/prod.env`. The key ones are `DATABASE_URL`,
+`PUBLIC_URL`, `L1_NETWORK`, `L1_RPC_URL`, `ARKIV_ACCESS_KEY`, `DHEET_PRIVATE_KEY` (the relayer) and `ZG_API_KEY`.
 
 ## Architecture
 
@@ -15,114 +95,100 @@ Live: https://dithub.app (single Linode, Caddy TLS, Docker Compose). Licence: MI
    │ GET /build.json              │  /api/deployments ── reads ──┐       │ outbox / cursors
    ▼                              ▼                              ▼       │
  apps/web (static, hashed)    bare git repos            Arkiv (Rabdi) <──┴── worker (Bun)
-                                                         ▲  dheet-activity-v1, -manifest-v1, -chunk-v1, -name-v1
- GitHub Actions ─ build ─ rsync ─ docker compose          │  
-        │                                                 └── worker also mirrors Sepolia logs ──┐
-        ├─ publish-release.ts ──> DeployRegistry (Sepolia) <── CRE deploy-attestor (DON) ──> DeployAttestations
+                                                        ▲  dheet-activity-v1, -manifest-v1, -chunk-v1, -name-v1
+ GitHub Actions ─ build ─ rsync ─ docker compose          │
+        │                                                 └── worker also mirrors L1 logs ──┐
+        ├─ publish-release.ts ──> DeployRegistry (L1) <── CRE deploy-attestor (DON) ──> DeployAttestations
         └─ verify-site.ts  ◄── anyone can run this: site files ↔ chain ↔ attestation
  0G Private Computer (TEE inference) <── api assistant (issue summaries / Q&A inside sessions)
 ```
 
-## Setup
+## Networks
 
-Requirements: Bun 1.4.x, Docker, git, Foundry (for contracts).
+The L1 is chosen by one setting, `L1_NETWORK` (`base` or `sepolia`), read by the API, worker, web build, release
+scripts and `dit` (`DIT_NETWORK`). Addresses live in `deployments/<network>.json`. Code defaults to Base; production
+currently runs on **Ethereum Sepolia** until the Base contracts are deployed. See
+[docs/base-mainnet.md](docs/base-mainnet.md) for the move to Base (chain 8453).
 
-```sh
-bun install
-cp .env.example .env                     # fill in values; never commit
-docker compose -f infra/docker-compose.yml up -d --wait     # Postgres, Redis, Meilisearch, Mailpit
-bun apps/api/src/migrate.ts              # applies packages/db/migrations/*.sql
-bun apps/web/build.ts                    # builds apps/web/dist (+ build.json)
-bun run api                              # API + web on :3000
-bun run worker                           # outbox -> L1 anchor + Arkiv, deployment mirror, Arkiv renewal
-```
+Arkiv storage stays on its testnet (Rabdi). Chainlink CRE attestations are not live on Base yet, and the verify
+tooling reports that instead of failing.
 
-Environment variable names (see `.env.example` and `infra/prod.env`): `ARKIV_ACCESS_KEY`, `DHEET_PRIVATE_KEY` (relayer), `DHEET_SEAT_KEY`, `DHEET_STRANGER_KEY`,
-`DHEET_DEPLOYER_KEY`, `CRE_ETH_PRIVATE_KEY`, `SEPOLIA_RPC_URL`, `ETHERSCAN_API_KEY`, `ZG_API_KEY`, `ZG_PRIVATE_KEY`, `ZG_PRIVY_APP_ID`, `DHEET_LINODE_API_KEY`;
-app runtime: `DATABASE_URL`, `INTERNAL_TOKEN`, `PORT`, `PUBLIC_URL`, `REF_REGISTRY`, `L1_RPC_URL`, `L1_CHAIN_ID`, `COOKIE_SECURE`, `SITE_HOST`.
-
-## Commands and tests
-
-```sh
-bun run typecheck
-bun test packages/sdk/test packages/e2e/local-flow.test.ts   # SDK + local two-identity git flow
-bun run test:contracts                                       # forge test --root packages/contracts
-bun scripts/e2e-platform.ts                                  # platform e2e against a local API
-BASE_URL=https://dithub.app bun scripts/smoke-prod.ts
-SITE=https://dithub.app bun scripts/verify-site.ts
-```
-
-## CROPS
-
-**Censorship resistance.** Repository code (chunked packfiles + manifest) and per-commit activity are published to Arkiv, and each push is anchored by one transaction to
-`RefRegistry` on Ethereum Sepolia. If our server disappears, `arkiv-clone` rebuilds a repo from Arkiv alone, verifying the manifest hash and every BLAKE3 chunk.
-Public-org RBAC changes are a hash chain mirrored to Arkiv. Limits: the web app and API are still one server we operate; Arkiv entities expire after about 182.5 days unless renewed (the worker renews them).
-
-**Open source.** MIT licence; the whole stack (API, worker, web, SDK, contracts, CRE workflow, CI) is in this repo and runs from `docker compose`.
-
-**Privacy.** Private repos and private orgs are never queued for the public ledger (the worker marks their anchors `done_private`; private orgs get 404 for non-members).
-Task sessions use the 0G Private Computer router in private trust mode so in-scope code is not shown to an ordinary model provider (`docs/zerog.md`).
-Limits: Arkiv and Sepolia data is public by design; wallet addresses of public contributors are visible; private data lives in our Postgres, not encrypted on a public network.
-
-**Security.** SIWE login, hashed PATs, per-IP rate limits on auth, RBAC enforced in git `pre-receive`, containers with `cap_drop: ALL` and `no-new-privileges`, key-only SSH,
-Cloud Firewall (22/80/443), fail2ban. Contracts are tested with Foundry but **not audited**; keys in this repo's environment are testnet keys.
-
-**Verifiable frontend (the demo).** CI builds `apps/web` with `GIT_COMMIT=<sha>`; the build emits `build.json {commit, bundleHash, files}` where
-`bundleHash = sha256(JSON.stringify({file: "0x"+sha256(bytes)}) with keys sorted)`. `scripts/publish-release.ts` records `(commit, bundleHash, url)` in `DeployRegistry`,
-and the Chainlink CRE workflow independently fetches the live site, recomputes the hash and writes `ok` on-chain to `DeployAttestations`. Anyone can check:
-
-```sh
-SITE=https://dithub.app bun scripts/verify-site.ts
-```
-
-It re-hashes every served file, recomputes the bundle hash, compares with `latestRelease()` and the CRE attestation, prints PASS/FAIL/WARN per check and exits 1 on any mismatch
-(tampering with a served file was tested and yields FAIL). To reproduce the build from source: check out the commit shown in `build.json`, run
-`GIT_COMMIT=<sha> bun apps/web/build.ts` with Bun 1.4.4 and compare `bundleHash`. Caveat: reproducibility depends on the same Bun version and lockfile; the production Docker base image tag is floating (`oven/bun:1-debian`).
-Another caveat: the check proves "served files == released files", not that the released source is free of bugs, and a malicious server could serve different files to
-different clients (the CRE nodes and your own run sample the same URL).
-
-## Contract addresses
-
-Ethereum Sepolia (chain 11155111). Deploy addresses are read from `deployments/sepolia.json`:
-
-| Contract | Address |
+| Contract (Sepolia, 11155111) | Address |
 | --- | --- |
-| DeployRegistry | `0x9caa2fEB7880Bb81b7A3C3324c22C3293c65655e` (deploy block 12073825) |
-| DeployAttestations | `0x458d41E371141655c5b04618875aF22F83809BC9` (deploy block 12073828) |
+| DeployRegistry | `0x9caa2fEB7880Bb81b7A3C3324c22C3293c65655e` |
+| DeployAttestations | `0x458d41E371141655c5b04618875aF22F83809BC9` |
 | RefRegistry | `0x9f66f0CDc76423D26692437e3964e5CeB7F9341B` |
-| Forwarder (in `deployments/sepolia.json`) | `0x15fC6ae953E024d975e77382eEeC56A9101f9F88`, a MockKeystoneForwarder (CRE simulation) |
 
-Wallets (public addresses): relayer / Arkiv writer `0x7e290CA88091C8635cC78fE58bB1f6e1361b097c`; deployer / registry owner `0xe5F2164bD59ba9F19fC76F1Aa1E55199a159A16b`;
-CRE wallet `0xB8Fc5e8C8B58a96b02980438Ed72EfE983100742`.
+## Verifying the frontend
+
+CI builds `apps/web` with `GIT_COMMIT=<sha>` and the build emits `build.json {commit, bundleHash, files}`, where
+`bundleHash` is the sha256 of the sorted per-file sha256 map. `scripts/publish-release.ts` records
+`(commit, bundleHash, url)` in `DeployRegistry`, and the Chainlink CRE workflow independently fetches the live site,
+recomputes the hash and writes `ok` to `DeployAttestations`. Anyone can check:
+
+    SITE=https://dithub.app bun scripts/verify-site.ts
+
+It re-hashes every served file, compares with `latestRelease()` and the CRE attestation, prints PASS/FAIL/WARN per
+check and exits 1 on any mismatch. To reproduce the build, check out the commit shown in `build.json` and run
+`GIT_COMMIT=<sha> bun apps/web/build.ts` with Bun 1.4.4.
+
+This proves "served files equal released files", not that the released source is bug-free, and a malicious server could
+show different files to different clients.
+
+## Testing
+
+    bun run typecheck
+    bun run test                       # SDK + local two-identity git flow
+    bun run test:dit                   # CLI
+    bun run test:vscode                # extension
+    bun run test:contracts             # forge test
+    bun scripts/e2e-platform.ts        # platform e2e against a local API
+    SITE=https://dithub.app bun scripts/verify-site.ts
+
+`bun run check` runs typecheck, tests, contract tests and the build in one go.
+
+## Security and limitations
+
+Dithub uses SIWE login, hashed PATs, per-IP auth rate limits, RBAC enforced in git `pre-receive`, containers with
+`cap_drop: ALL` and `no-new-privileges`, key-only SSH, a Cloud Firewall and fail2ban. Be aware of the following:
+
+* Contracts are tested with Foundry but **not audited**. Keys in this repo's environment are testnet keys.
+* Arkiv and L1 data is public by design, and wallet addresses of public contributors are visible. Private data lives
+  in our Postgres and is not encrypted on a public network.
+* The web app and API are still one server we operate, with no database backups yet.
+* Arkiv entities expire after about 182.5 days unless renewed (the worker renews them; the renewal drill has not been
+  run end to end). Arkiv has no read proofs, so readers filter by the trusted writer address and verify hashes.
+* The CRE workflow is validated by simulation and a mock forwarder; see [`SUBMISSION.md`](SUBMISSION.md).
+* Wallet login is EOA-only (no EIP-1271), and the RBAC hash-chain head is not yet anchored on L1.
 
 ## Repository map
 
-`apps/api`, `apps/worker`, `apps/web`, `apps/git/hooks`, `packages/sdk` (protocol + Arkiv), `packages/contracts`, `packages/db/migrations`, `cre/deploy-attestor`,
-`infra/` (prod compose, Caddy), `scripts/`, `arkiv/` (Arkiv track documents), `docs/` (`ci-cd.md`, `chainlink-cre.md`, `zerog.md`, `api-phase3.md`, `implementation-status.md`), `SUBMISSION.md`.
+| Path | What is in it |
+| --- | --- |
+| `apps/api` | Bun + Hono API, git smart HTTP, RBAC |
+| `apps/worker` | Outbox, L1 anchoring, Arkiv publishing and renewal, deployment mirror |
+| `apps/web` | Static web app and the hashed build |
+| `apps/git/hooks` | Server-side git hooks |
+| `packages/dit` | The `dit` CLI |
+| `packages/vscode` | VS Code extension |
+| `packages/sdk` | Protocol and Arkiv SDK |
+| `packages/contracts` | Solidity contracts (`RefRegistry`, `DeployRegistry`, `DeployAttestations`) |
+| `packages/db/migrations` | PostgreSQL migrations |
+| `cre/deploy-attestor` | Chainlink CRE workflow |
+| `infra` | Compose files and Caddy config |
+| `docs` | [`ci-cd.md`](docs/ci-cd.md), [`chainlink-cre.md`](docs/chainlink-cre.md), [`zerog.md`](docs/zerog.md), [`base-mainnet.md`](docs/base-mainnet.md), [`implementation-status.md`](docs/implementation-status.md) |
 
-## Honest limitations
+## Feedback
 
-- Testnets only (Sepolia, Arkiv Rabdi); no mainnet deployment, no audit.
-- One server; no database backups yet; the relayer key is a testnet key in `infra/prod.env`.
-- Arkiv has no read proofs and anyone can write entities of our schema, so readers filter by the trusted writer address and verify hashes where possible; see `arkiv/friction.md`.
-- Arkiv entities need renewal (about 182.5 days max per purchase); a renewal drill has not been run end to end.
-- The CRE workflow is validated by simulation and a mock forwarder in `deployments/sepolia.json`; check `SUBMISSION.md` for whether a live DON deployment exists.
-- Wallet login is EOA-only (no EIP-1271); the chain head of the RBAC hash chain is not yet anchored on L1.
-- The project began before the hackathon (see `SUBMISSION.md`).
+Open an issue at <https://github.com/rootp1/dithub/issues>, or file one with `dit issue create` on
+<https://dithub.app>.
 
-## dit CLI
+## Contributing
 
-`dit` is the Git-compatible command-line client for Dithub: `dit clone owner/repo` replaces `git clone`, other git
-commands pass through, and issues, pull requests, orgs, branch protection, task-scoped sessions and on-chain
-verification are built in. Sign in with `dit login` (device code, nothing pasted; tokens never appear in argv, URLs
-or `.git/config`).
+Fork the repo, branch from `main`, and make sure `bun run check` passes before opening a pull request. Start with
+[`docs/implementation-status.md`](docs/implementation-status.md) and [`plan.md`](plan.md) to see what is built and
+what is planned.
 
-```sh
-bun link --cwd packages/dit      # or: bun run build:dit && cp packages/dit/dist/dit /usr/local/bin/
-dit login && dit clone alice/web
-dit log --anchors && dit verify site
-```
+## License
 
-`dit verify rebuild` proves the on-chain release equals a fresh Docker build of the public source; `dit recover owner/repo` rebuilds a repo from Arkiv alone (needs an Arkiv access key). Also: `repo ls|cat|commits|ledger`, `label`, `name resolve`, `deployments`, `token create`.
-
-Full reference: [docs/dit-cli.md](docs/dit-cli.md). Tests: `bun run test:dit`, `bun scripts/e2e-dit.ts`.
+Dithub is distributed under the terms of the MIT license. See [LICENSE](LICENSE) for details.
