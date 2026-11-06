@@ -6,14 +6,21 @@ import {
   renewArkivEntities, sha256, uploadManifestToArkiv, padOid,
 } from '../../../packages/sdk/src/index.ts'
 import { startDeploymentMirror } from './deployments.ts'
+import { networkOf } from '../../../deployments/networks.ts'
 
 const env = process.env
 const sql = new SQL(env.DATABASE_URL ?? '')
 const REPOS_DIR = env.REPOS_DIR ?? `${process.cwd()}/.data/repos`
 const WORK_DIR = env.WORKER_DIR ?? `${process.cwd()}/.data/worker`
-const L1_RPC = env.L1_RPC_URL ?? 'https://ethereum-sepolia-rpc.publicnode.com'
-const L1_CHAIN = Number(env.L1_CHAIN_ID ?? 11155111)
-const DEFAULT_REF_REGISTRY = env.REF_REGISTRY as `0x${string}` | undefined
+const NETWORK = networkOf(env.L1_NETWORK ?? env.L1_CHAIN_ID)
+const L1_RPC = env.L1_RPC_URL ?? NETWORK.rpcUrl
+const L1_CHAIN = NETWORK.chainId
+{ // a stale L1_RPC_URL (e.g. Sepolia's) next to L1_NETWORK=base would sign for one chain and send to another
+  const res = await fetch(L1_RPC, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}', signal: AbortSignal.timeout(15_000) })
+  const rpcChain = Number(((await res.json()) as { result?: string }).result)
+  if (rpcChain !== L1_CHAIN) throw new Error(`L1_RPC_URL serves chain ${rpcChain}, but L1 network is ${NETWORK.label} (${L1_CHAIN}); fix infra/prod.env`)
+}
+const DEFAULT_REF_REGISTRY = (env.REF_REGISTRY as `0x${string}` | undefined) || NETWORK.refRegistry
 const PUBLISH_CODE = env.ARKIV_PUBLISH_CODE !== '0'
 const CODE_MAX_BYTES = Number(env.ARKIV_CODE_MAX_BYTES ?? 2_000_000)
 const MAX_COMMITS_PER_PUSH = Number(env.MAX_COMMITS_PER_PUSH ?? 50)
@@ -62,7 +69,8 @@ async function handlePush(job: { id: number; payload: { pushId: number; repoId: 
   const [done] = await sql`SELECT l1_tx FROM commit_anchors WHERE push_id = ${push.id} AND l1_tx IS NOT NULL LIMIT 1`
   let registry = DEFAULT_REF_REGISTRY
   if (push.owner_kind === 'org') {
-    const [org] = await sql`SELECT ref_registry FROM orgs WHERE id = ${push.owner_id}`
+    // An org registry only counts on the chain it was created for (orgs made on Sepolia keep the default on Base).
+    const [org] = await sql`SELECT ref_registry FROM orgs WHERE id = ${push.owner_id} AND chain_id = ${L1_CHAIN}`
     if (org?.ref_registry) registry = toHex(org.ref_registry) as `0x${string}`
   }
   if (done?.l1_tx) l1Tx = toHex(done.l1_tx)
@@ -171,7 +179,7 @@ async function renewal() {
 
 console.log(`dithub worker started, relayer ${relayer}`)
 await sql`UPDATE outbox SET status = 'pending' WHERE status = 'processing'`   // crash recovery
-startDeploymentMirror({ sql, arkiv, relayer })   // Sepolia DeployRegistry/Attestations -> Postgres + Arkiv (own loop)
+startDeploymentMirror({ sql, arkiv, relayer, network: NETWORK, rpcUrl: L1_RPC })   // DeployRegistry/Attestations -> Postgres + Arkiv (own loop)
 let lastRenewal = 0
 for (;;) {
   const worked = await tick().catch((e) => { console.error('tick error', e); return false })

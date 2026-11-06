@@ -168,6 +168,12 @@ let projRepo = projSlug
 
 const clone = join(work, 'clone')
 {
+  const plainClone = join(work, 'plain-clone')
+  const gc = git(A, work, 'clone', `${BASE}/git/${projRepo}`, plainClone)
+  ok(gc.code === 0 && existsSync(join(plainClone, 'src/payments/pay.ts')), 'plain `git clone` authenticates after `dit login`'); noLeak(gc.all, 'plain git clone output')
+  writeFileSync(join(plainClone, 'from-plain-git.txt'), 'standard git only\n'); git(A, plainClone, 'add', '-A'); git(A, plainClone, 'commit', '-qm', 'plain git workflow')
+  const gp = git(A, plainClone, 'push'); ok(gp.code === 0, 'plain `git add/commit/push` completes the source-control workflow'); noLeak(gp.all, 'plain git workflow output')
+
   const c = dit(A, ['clone', projRepo, clone])
   ok(c.code === 0 && existsSync(join(clone, 'src/payments/pay.ts')), 'dit clone owner/repo works (private repo)'); noLeak(c.all, 'clone output')
   const cfg = readFileSync(join(clone, '.git/config'), 'utf8')
@@ -321,7 +327,7 @@ console.log('-- anchors and verification')
 {
   await sleep(1500)
   const lg = dit(A, ['log', '--anchors'], { cwd: clone })
-  ok(lg.code === 0 && /COMMIT\s+SUBJECT\s+ANCHOR\s+SEPOLIA TX\s+ARKIV TX/.test(lg.out), 'dit log --anchors prints the anchoring table')
+  ok(lg.code === 0 && /COMMIT\s+SUBJECT\s+ANCHOR\s+L1 TX\s+ARKIV TX/.test(lg.out), 'dit log --anchors prints the anchoring table')
   const rows = jsonOf(dit(A, ['log', '--anchors', '--json'], { cwd: clone }).out) as Array<{ commit: string; status: string; l1Tx: string | null; arkivTx: string | null }> | null
   ok(!!rows?.length && rows.every((r) => /^[0-9a-f]{40}$/.test(r.commit) && typeof r.status === 'string' && 'l1Tx' in r && 'arkivTx' in r), 'dit log --anchors --json has commit/status/l1Tx/arkivTx')
   ok(dit(A, ['log', '--oneline', '-3'], { cwd: clone }).out.trim().split('\n').length === 3, 'plain dit log passes through to git')

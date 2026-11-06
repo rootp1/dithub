@@ -30,7 +30,7 @@ export async function logCmd(argv: string[]): Promise<number> {
   if (json) { printJson(rows); return 0 }
   if (!rows.length) { console.log(c.dim('None of these commits are known to Dithub yet (push first).')); return 0 }
   const st = (s: string) => (s === 'anchored' ? c.green(s) : s === 'failed' ? c.red(s) : s === 'done_private' ? c.dim(s) : c.yellow(s))
-  console.log(table(['COMMIT', 'SUBJECT', 'ANCHOR', 'SEPOLIA TX', 'ARKIV TX'], rows.map((r) => [short(r.commit, 8), trunc(r.subject, 40), st(r.status), r.l1Tx ? short(r.l1Tx, 14) : '-', r.arkivTx ? short(r.arkivTx, 14) : '-'])))
+  console.log(table(['COMMIT', 'SUBJECT', 'ANCHOR', 'L1 TX', 'ARKIV TX'], rows.map((r) => [short(r.commit, 8), trunc(r.subject, 40), st(r.status), r.l1Tx ? short(r.l1Tx, 14) : '-', r.arkivTx ? short(r.arkivTx, 14) : '-'])))
   return 0
 }
 void withHelperEnv; void findToken; void flag

@@ -7,10 +7,12 @@ import { and, desc, eq } from '@arkiv-network/sdk/query'
 import { addr, key } from '@arkiv-network/sdk/schema'
 import { ArkivActivitySchema, createArkivConnection, sha256 } from '../../../packages/sdk/src/index.ts'
 import { sql, toHex } from './db.ts'
+import { config } from './config.ts'
+import { chainScoped } from '../../../deployments/networks.ts'
 
 export const deployments = new Hono()
 
-const REPO_KEY = sha256('dheet:deployments') as `0x${string}`
+const REPO_KEY = sha256(chainScoped(config.l1.network, 'dheet:deployments')) as `0x${string}`   // per chain: release ids restart at 1
 const TTL_MS = 30_000
 // Anyone can write entities with this schema, so only entities written by the trusted mirror (relayer) wallet are shown.
 const TRUSTED_WRITER = (process.env.DHEET_RELAYER_ADDRESS ?? '0x7e290CA88091C8635cC78fE58bB1f6e1361b097c') as `0x${string}`
@@ -72,7 +74,7 @@ async function fromArkiv(): Promise<DeploymentItem[]> {
 }
 
 async function fromPostgres(): Promise<DeploymentItem[]> {
-  const rows = await sql`SELECT * FROM deployments ORDER BY id DESC LIMIT ${LIMIT}`
+  const rows = await sql`SELECT * FROM deployments WHERE chain_id = ${config.l1.chainId} ORDER BY id DESC LIMIT ${LIMIT}`
   return rows.map((r: Record<string, any>) => ({
     releaseId: Number(r.id), commit: toHex(r.commit), bundleHash: toHex(r.bundle_hash), url: r.url,
     publishedAt: r.published_at ? new Date(r.published_at).toISOString() : null, publishTx: toHex(r.publish_tx),

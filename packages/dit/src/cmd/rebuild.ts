@@ -5,7 +5,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { flag, parse, str } from '../args.ts'
 import { DitError, UsageError } from '../errors.ts'
-import { SEPOLIA, SOURCE_REPO } from '../constants.ts'
+import { SEL, SOURCE_REPO, l1, needRegistry } from '../constants.ts'
 import { c, info, printJson } from '../ui.ts'
 import { bundleHashOf, report, rpc, sha256, type Row } from './verify.ts'
 
@@ -88,9 +88,9 @@ async function rpcRetry<T>(method: string, params: unknown[]): Promise<T> {
   for (let i = 0; i < 5; i++) {
     try { return await rpc<T>(method, params) } catch (e) { last = e; await new Promise((r) => setTimeout(r, 700 * 2 ** i)) }
   }
-  throw new DitError(`Sepolia RPC failed: ${(last as Error)?.message ?? last}`)
+  throw new DitError(`${l1().label} RPC failed: ${(last as Error)?.message ?? last}`)
 }
-const call = (data: string) => rpcRetry<string>('eth_call', [{ to: SEPOLIA.registry, data }, 'latest'])
+const call = (data: string) => rpcRetry<string>('eth_call', [{ to: needRegistry(), data }, 'latest'])
 
 export interface ChainRelease { id: number; commit: string; bundleHash: string; url: string; publishedAt: number; publisher: string }
 export function decodeGetRelease(id: number, data: string): ChainRelease {
@@ -101,8 +101,8 @@ export function decodeGetRelease(id: number, data: string): ChainRelease {
   if ((off + 1) * 64 + len * 2 > h.length) throw new Error('ABI string out of range')
   return { id, commit: '0x' + w(0), bundleHash: '0x' + w(1), url: Buffer.from(h.slice((off + 1) * 64, (off + 1) * 64 + len * 2), 'hex').toString('utf8'), publishedAt: Number(BigInt('0x' + w(3))), publisher: '0x' + w(4).slice(24) }
 }
-export async function releaseCount(): Promise<number> { return Number(BigInt(await call(SEPOLIA.selReleaseCount))) }
-export async function getRelease(id: number): Promise<ChainRelease> { return decodeGetRelease(id, await call(SEPOLIA.selGetRelease + word(id))) }
+export async function releaseCount(): Promise<number> { return Number(BigInt(await call(SEL.selReleaseCount))) }
+export async function getRelease(id: number): Promise<ChainRelease> { return decodeGetRelease(id, await call(SEL.selGetRelease + word(id))) }
 
 async function findRelease(o: RebuildOpts): Promise<ChainRelease> {
   const count = await releaseCount()
@@ -261,7 +261,7 @@ export async function rebuild(o: RebuildOpts, deps: Deps = {}): Promise<{ ok: bo
 
 export async function rebuildCmd(argv: string[]): Promise<number> {
   const o = parseRebuildArgs(argv)
-  info(`Rebuilding the public source ${o.source === SOURCE_REPO ? '' : `(${o.source}) `}and comparing with Sepolia; this can take a minute...`)
+  info(`Rebuilding the public source ${o.source === SOURCE_REPO ? '' : `(${o.source}) `}and comparing with ${l1().label}; this can take a minute...`)
   const r = await rebuild(o)
   void c; void statSync
   if (o.json) { printJson({ ok: r.ok, ...r.data, checks: r.rows }); return r.ok ? 0 : 1 }

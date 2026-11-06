@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 import { sql, hex, toHex } from './db.ts'
 import { authenticate, type AuthUser } from './auth.ts'
 import { can, findRepo, type RepoRow } from './perm.ts'
+import { config } from './config.ts'
 
 export const rbac = new Hono()
 
@@ -58,7 +59,7 @@ rbac.post('/orgs', async (c) => {
   if ((await sql`SELECT 1 FROM orgs WHERE login = ${b.login}`).length) return c.json({ error: 'name is taken' }, 409)
   const visibility = b.visibility === 'private' ? 'private' : 'public'
   const org = await sql.begin(async (tx) => {
-    const [o] = await tx`INSERT INTO orgs (login, visibility, ref_registry, chain_id) VALUES (${b.login}, ${visibility}, ${b.refRegistry ? hex(b.refRegistry) : null}, 11155111) RETURNING id, login, visibility`
+    const [o] = await tx`INSERT INTO orgs (login, visibility, ref_registry, chain_id) VALUES (${b.login}, ${visibility}, ${b.refRegistry ? hex(b.refRegistry) : null}, ${config.l1.chainId}) RETURNING id, login, visibility`
     await tx`INSERT INTO org_members (org_id, user_id, role) VALUES (${o.id}, ${user.id}, 'owner')`
     await recordRbac(tx, { orgId: Number(o.id), actor: user, action: 'org.create', payload: { org: b.login, visibility } })
     return o

@@ -1,20 +1,19 @@
-// `dit verify site|commit`: independent checks against Sepolia via manual JSON-RPC (no libraries).
+// `dit verify site|commit`: independent checks against the L1 (Base by default) via manual JSON-RPC (no libraries).
 import { createHash } from 'node:crypto'
 import { Api, apiFor } from '../api.ts'
 import { flag, needArg, parse, str } from '../args.ts'
 import { DitError, UsageError } from '../errors.ts'
 import { primaryHost } from '../config.ts'
-import { SEPOLIA } from '../constants.ts'
+import { SEL, l1, needRegistry, networkByChainId, rpcUrlFor } from '../constants.ts'
 import { git } from '../git.ts'
 import { repoCtx } from '../repoctx.ts'
 import { c, printJson } from '../ui.ts'
 
-const rpcUrl = () => process.env.DIT_RPC_URL ?? process.env.SEPOLIA_RPC_URL ?? SEPOLIA.rpcUrl
 export const sha256 = (b: Uint8Array | string) => `0x${createHash('sha256').update(b).digest('hex')}`
 const eq = (a: string, b: string) => a.toLowerCase() === b.toLowerCase()
 
-export async function rpc<T = unknown>(method: string, params: unknown[], f: typeof fetch = fetch): Promise<T> {
-  const res = await f(rpcUrl(), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(20_000) })
+export async function rpc<T = unknown>(method: string, params: unknown[], f: typeof fetch = fetch, url = rpcUrlFor()): Promise<T> {
+  const res = await f(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(20_000) })
   const j = (await res.json()) as { result?: T; error?: { message?: string } }
   if (j.error) throw new Error(j.error.message ?? 'RPC error')
   return j.result as T
@@ -80,13 +79,15 @@ export async function verifySite(host: string, json: boolean): Promise<number> {
     }
     const recomputed = bundleHashOf(actual)
     add('bundleHash recomputed', eq(recomputed, build.bundleHash) ? 'PASS' : 'FAIL', recomputed.slice(0, 18) + '...')
-    const rel = decodeLatestRelease(await rpc<string>('eth_call', [{ to: SEPOLIA.registry, data: SEPOLIA.selLatestRelease }, 'latest']))
+    const rel = decodeLatestRelease(await rpc<string>('eth_call', [{ to: needRegistry(), data: SEL.selLatestRelease }, 'latest']))
     if (rel.id === 0) { add('on-chain latestRelease', 'FAIL', 'no release published'); return }
     add('on-chain latestRelease', 'PASS', `#${rel.id} by ${rel.publisher} at ${new Date(rel.publishedAt * 1000).toISOString()} (${rel.url})`)
     add('bundleHash == on-chain', eq(rel.bundleHash, recomputed) ? 'PASS' : 'FAIL', `chain ${rel.bundleHash.slice(0, 18)}...`)
     const wantCommit = `0x${String(build.commit).toLowerCase().replace(/^0x/, '').padStart(64, '0')}`
     add('commit == on-chain', /^[0-9a-f]{40}$/i.test(String(build.commit).replace(/^0x/, '')) && eq(rel.commit, wantCommit) ? 'PASS' : 'FAIL', `chain ${rel.commit.slice(26, 38)}...`)
-    const att = decodeLatestAttestation(await rpc<string>('eth_call', [{ to: SEPOLIA.attestations, data: SEPOLIA.selLatestAttestation }, 'latest']))
+    const attestations = l1().attestations
+    if (!attestations) { add('CRE attestation', 'WARN', `Chainlink attestations are not live on ${l1().label} yet`); return }
+    const att = decodeLatestAttestation(await rpc<string>('eth_call', [{ to: attestations, data: SEL.selLatestAttestation }, 'latest']))
     if (att.releaseId === 0) add('CRE attestation', 'WARN', 'none recorded yet')
     else if (att.releaseId !== rel.id) add('CRE attestation', 'WARN', `latest attestation is for release #${att.releaseId}, not #${rel.id}`)
     else add('CRE attestation for latest release', att.ok ? 'PASS' : 'FAIL', `ok=${att.ok} observed ${new Date(att.observedAt * 1000).toISOString()}`)
@@ -110,13 +111,14 @@ export async function verifyCommit(ctx: ReturnType<typeof repoCtx>, shaArg: stri
   const cm = m[0]!, a = cm.anchor
   add('commit known to Dithub', 'PASS', cm.subject)
   add('anchor status', a.status === 'anchored' ? 'PASS' : a.status === 'failed' ? 'FAIL' : 'WARN', a.status === 'done_private' ? 'done_private (private repo: nothing is mirrored on-chain)' : a.status)
+  const net = networkByChainId(a.l1ChainId) ?? l1(), receipt = `${net.label} tx receipt`
   if (a.l1Tx) {
     try {
-      const rc = await rpc<{ status: string; blockNumber: string } | null>('eth_getTransactionReceipt', [a.l1Tx])
-      if (!rc) add('Ethereum Sepolia tx receipt', 'FAIL', `${a.l1Tx} not found on ${rpcUrl()}`)
-      else add('Ethereum Sepolia tx receipt', rc.status === '0x1' ? 'PASS' : 'FAIL', `${a.l1Tx.slice(0, 18)}... block ${parseInt(rc.blockNumber, 16)} status ${rc.status === '0x1' ? 'success' : 'reverted'}`)
-    } catch (e) { add('Ethereum Sepolia tx receipt', 'FAIL', `RPC error: ${(e as Error).message.slice(0, 120)}`) }
-  } else add('Ethereum Sepolia tx receipt', 'WARN', 'no L1 transaction recorded for this commit yet')
+      const rc = await rpc<{ status: string; blockNumber: string } | null>('eth_getTransactionReceipt', [a.l1Tx], fetch, rpcUrlFor(net))
+      if (!rc) add(receipt, 'FAIL', `${a.l1Tx} not found on ${rpcUrlFor(net)}`)
+      else add(receipt, rc.status === '0x1' ? 'PASS' : 'FAIL', `${a.l1Tx.slice(0, 18)}... block ${parseInt(rc.blockNumber, 16)} status ${rc.status === '0x1' ? 'success' : 'reverted'}`)
+    } catch (e) { add(receipt, 'FAIL', `RPC error: ${(e as Error).message.slice(0, 120)}`) }
+  } else add(receipt, 'WARN', 'no L1 transaction recorded for this commit yet')
   if (a.arkivEntity) {
     try {
       const led = await ctx.api.get<{ entities: Array<{ entity: string; tx: string }>; anchors: Array<{ tx: string }> }>(`${ctx.R}/ledger`)

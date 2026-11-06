@@ -305,3 +305,8 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 0; 
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
 }
+
+/* Wallet account chooser (shown when the wallet grants more than one account) */
+.account-chooser { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 16px; background: color-mix(in srgb, #000 45%, transparent); }
+.account-chooser .card { width: min(520px, 100%); margin: 0; }
+.account-chooser button.mono { width: 100%; text-align: left; overflow-wrap: anywhere; }

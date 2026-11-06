@@ -19,7 +19,8 @@ COPY packages/sdk packages/sdk
 COPY packages/db packages/db
 COPY deployments deployments
 ARG GIT_COMMIT=dev
-RUN GIT_COMMIT=$GIT_COMMIT bun apps/web/build.ts
+ARG L1_NETWORK=base
+RUN GIT_COMMIT=$GIT_COMMIT L1_NETWORK=$L1_NETWORK bun apps/web/build.ts
 ENV NODE_ENV=production REPOS_DIR=/data/repos WORKER_DIR=/data/worker
 USER bun
 EXPOSE 3000

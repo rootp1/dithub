@@ -62,6 +62,9 @@ Public-org RBAC changes are a hash chain mirrored to Arkiv. Limits: the web app 
 
 **Privacy.** Private repos and private orgs are never queued for the public ledger (the worker marks their anchors `done_private`; private orgs get 404 for non-members).
 Task sessions use the 0G Private Computer router in private trust mode so in-scope code is not shown to an ordinary model provider (`docs/zerog.md`).
+
+The VS Code task workflow also runs from the terminal: `dit task assign 12 @dev -R owner/repo`, then
+`dit task connect`, `edit`, `ask`, `diff` and `submit`. See [the task CLI guide](docs/dit-cli.md#0g-task-workflow-in-the-terminal).
 Limits: Arkiv and Sepolia data is public by design; wallet addresses of public contributors are visible; private data lives in our Postgres, not encrypted on a public network.
 
 **Security.** SIWE login, hashed PATs, per-IP rate limits on auth, RBAC enforced in git `pre-receive`, containers with `cap_drop: ALL` and `no-new-privileges`, key-only SSH,
@@ -112,15 +115,16 @@ CRE wallet `0xB8Fc5e8C8B58a96b02980438Ed72EfE983100742`.
 
 ## dit CLI
 
-`dit` is the Git-compatible command-line client for Dithub: `dit clone owner/repo` replaces `git clone`, other git
-commands pass through, and issues, pull requests, orgs, branch protection, task-scoped sessions and on-chain
-verification are built in. Sign in with `dit login` (device code, nothing pasted; tokens never appear in argv, URLs
-or `.git/config`).
+Use Git for source control and `dit` for Dithub platform operations. `dit login` configures a host-scoped Git
+credential helper, so ordinary `git clone`, `fetch`, `pull` and `push` work for private repositories without putting
+tokens in argv, URLs or `.git/config`. Issues, pull requests, orgs, branch protection, task-scoped sessions and
+on-chain verification are handled by `dit`.
 
 ```sh
 bun link --cwd packages/dit      # or: bun run build:dit && cp packages/dit/dist/dit /usr/local/bin/
-dit login && dit clone alice/web
-dit log --anchors && dit verify site
+dit login && git clone https://dithub.app/git/alice/web
+cd web && git status && git pull && git push
+dit repo commits && dit verify site
 ```
 
 `dit verify rebuild` proves the on-chain release equals a fresh Docker build of the public source; `dit recover owner/repo` rebuilds a repo from Arkiv alone (needs an Arkiv access key). Also: `repo ls|cat|commits|ledger`, `label`, `name resolve`, `deployments`, `token create`.

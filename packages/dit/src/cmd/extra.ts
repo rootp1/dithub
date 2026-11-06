@@ -36,7 +36,7 @@ export async function repoBrowse(sub: string, argv: string[]): Promise<number> {
     const rows = r.commits.slice(0, Number(str(p.values.limit)) || 30)
     if (json) { printJson(rows); return 0 }
     const chip = (s?: string) => (s === 'anchored' ? c.green('anchored') : s === 'failed' ? c.red(s) : s === 'done_private' ? c.dim('private') : s && s !== 'none' ? c.yellow(s) : c.dim('none'))
-    console.log(table(['COMMIT', 'SUBJECT', 'AUTHOR', 'WHEN', 'ANCHOR', 'SEPOLIA TX', 'ARKIV TX'], rows.map((x) => [short(x.oid, 8), trunc(x.subject, 44), x.author ?? '', ago(x.committedAt), chip(x.anchor?.status), x.anchor?.l1Tx ? short(x.anchor.l1Tx, 12) : '-', x.anchor?.arkivTx ? short(x.anchor.arkivTx, 12) : '-'])))
+    console.log(table(['COMMIT', 'SUBJECT', 'AUTHOR', 'WHEN', 'ANCHOR', 'L1 TX', 'ARKIV TX'], rows.map((x) => [short(x.oid, 8), trunc(x.subject, 44), x.author ?? '', ago(x.committedAt), chip(x.anchor?.status), x.anchor?.l1Tx ? short(x.anchor.l1Tx, 12) : '-', x.anchor?.arkivTx ? short(x.anchor.arkivTx, 12) : '-'])))
     return 0
   }
   // ledger

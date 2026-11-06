@@ -1,12 +1,19 @@
 export const VERSION = '0.1.0'
 export const DEFAULT_HOST = 'https://dithub.app'
 
-/** Sepolia contracts (kept in step with deployments/sepolia.json; a unit test checks it). */
-export const SEPOLIA = {
-  chainId: 11155111,
-  rpcUrl: 'https://ethereum-sepolia-rpc.publicnode.com',
-  registry: '0x9caa2fEB7880Bb81b7A3C3324c22C3293c65655e',
-  attestations: '0x458d41E371141655c5b04618875aF22F83809BC9',
+import { NETWORKS, networkOf, type Network } from '../../../deployments/networks.ts'
+
+/** The chain `dit verify` / `dit rebuild` read: DIT_NETWORK (base | sepolia), default Base mainnet. Read per call so tests can switch. */
+export const l1 = (): Network => networkOf(process.env.DIT_NETWORK)
+/** DIT_RPC_URL only overrides the selected network; other chains (an old Sepolia anchor) use their public RPC. */
+export const rpcUrlFor = (n: Network = l1()) => (n.chainId === l1().chainId && process.env.DIT_RPC_URL) || n.rpcUrl
+export const networkByChainId = (id: number | null | undefined) => Object.values(NETWORKS).find((n) => n.chainId === id)
+export const needRegistry = (n: Network = l1()) => {
+  if (!n.registry) throw new Error(`no DeployRegistry on ${n.label} yet (deployments/${n.name}.json is empty)`)
+  return n.registry
+}
+
+export const SEL = {
   selLatestRelease: '0x7be0ca5e',      // latestRelease()
   selLatestAttestation: '0x24b6d96a',  // latestAttestation()
   selGetRelease: '0x79af2b9a',         // getRelease(uint256)

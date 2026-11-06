@@ -3,7 +3,8 @@ import { mkdtempSync, mkdirSync, writeFileSync, copyFileSync, readdirSync, rmSyn
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { UsageError, DitError } from '../src/errors.ts'
-import { SEPOLIA } from '../src/constants.ts'
+import { SEL, l1 } from '../src/constants.ts'
+process.env.DIT_NETWORK = 'sepolia'   // the integration tests below replay real Sepolia release 11
 import { bundleHashOf, sha256 } from '../src/cmd/verify.ts'
 import { chooseSandbox, decodeCommit, decodeGetRelease, diffFiles, emptyBuildEnv, parseRebuildArgs, pinnedBunVersion, rebuild, rehashDist, type RebuildOpts } from '../src/cmd/rebuild.ts'
 
@@ -15,7 +16,7 @@ describe('rebuild: pure parts', () => {
     expect(() => decodeCommit('0x12')).toThrow(DitError)
   })
   test('selectors and getRelease decoding', () => {
-    expect(SEPOLIA.selGetRelease).toBe('0x79af2b9a'); expect(SEPOLIA.selReleaseCount).toBe('0xb8d08db2')
+    expect(SEL.selGetRelease).toBe('0x79af2b9a'); expect(SEL.selReleaseCount).toBe('0xb8d08db2')
     const w = (n: number) => n.toString(16).padStart(64, '0')
     const url = Buffer.from('https://x.y').toString('hex').padEnd(64, '0')
     const r = decodeGetRelease(4, '0x' + '0'.repeat(24) + 'ab'.repeat(20) + 'bb'.repeat(32) + w(160) + w(1700000000) + w(0x99) + w(11) + url)
@@ -71,7 +72,7 @@ describe('rebuild: pure parts', () => {
 
 // ---- integration against Sepolia (skipped when the RPC is unreachable) ----
 const repoRoot = resolve(import.meta.dir, '../../..')
-const reach = await fetch(SEPOLIA.rpcUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}', signal: AbortSignal.timeout(8000) }).then((r) => r.ok, () => false)
+const reach = await fetch(l1().rpcUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}', signal: AbortSignal.timeout(8000) }).then((r) => r.ok, () => false)
 const hasCommit = Bun.spawnSync(['git', 'cat-file', '-e', '4c22d2f6deb3d70950f183246c12e6d66184abfb^{commit}'], { cwd: repoRoot }).exitCode === 0
 const it = reach && hasCommit ? test : test.skip
 // No explicit site: release 11 is old, so the live site may legitimately serve a newer release (reported as WARN, not FAIL).

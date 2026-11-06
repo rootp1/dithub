@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "dit: the Git-compatible command-line client for Dithub",
+  "description": "dit: platform operations and Git authentication for Dithub",
   "bin": {
     "dit": "./src/index.ts"
   }

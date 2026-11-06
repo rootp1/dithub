@@ -7,19 +7,18 @@ const G = `Global options (every command):
   -h, --help       show help
 Environment: DIT_HOST, DIT_TOKEN (CI), DIT_CONFIG_DIR, DIT_SESSION, NO_COLOR, HTTPS_PROXY`
 
-export const TOP = `dit ${VERSION}: the Git-compatible command-line client for Dithub
+export const TOP = `dit ${VERSION}: Dithub's platform command-line client
 
 Usage: dit <command> [options]
 
 Platform commands
   login / logout / whoami / auth     sign in (device flow), sign out, who am I, status
-  clone <owner/repo> [dir]           clone without leaving credentials anywhere
-  init [--remote]                    git init, optionally create the platform repo
   repo create|list|view|collaborators|grant-team
   protect set|remove|list            branch protection
   issue list|view|create|comment|close|reopen|label|assign
   pr list|view|create|diff|files|checks|review|merge|close|reopen|checkout
   org list|view|create|members|team|log
+  task assign|connect|edit|ask|diff|submit   the 0G extension workflow in your terminal
   session list|open|issue|ls|cat|export|ask|summarize|propose|end   task-scoped access
   session create|revoke|events       (maintainers)
   label list|create|edit|delete      issue labels
@@ -28,18 +27,68 @@ Platform commands
   deployments [list|latest]          release history (Arkiv, with Postgres fallback) and attestations
   verify site|commit|rebuild         check the site / a commit / the on-chain release against its public source
   recover <repo> [dir]               rebuild a repo from Arkiv alone, without the Dithub server
-  log [--anchors]                    git log; --anchors adds Sepolia and Arkiv tx per commit
   credential get|store|erase         git credential helper (called by git)
   completion bash|zsh                print a shell completion script
   version                            print the version
 
-Every other command is passed straight to git (dit push, dit pull, dit status, dit commit, ...).
+Use Git for source-control operations: git clone, init, add, commit, status, diff, log, fetch, pull,
+push, branch, switch, checkout, merge, rebase, tag, stash, restore, reset and remote. Use dit for
+Dithub platform operations. \`dit login\` configures Git's credential helper for the selected host.
+
+The older dit wrappers for Git commands remain as compatibility aliases for now.
 
 ${G}
 
 Run \`dit <command> --help\` for details and examples.`
 
 const H: Record<string, string> = {
+  task: `dit task [list|repos|issues|assign|connect|show|ls|cat|edit|status|diff|submit|ask|summarize|calls|discard|disconnect|end]
+
+The same scoped task workflow as the VS Code extension, directly in the terminal. Sign in with dit login.
+No clone, repository access or export is needed. Drafts are kept in a private local store, and editing opens
+one temporary file in $VISUAL/$EDITOR. Only in-scope UTF-8 files up to 1 MB can be edited.
+
+Maintainers:
+  dit task repos                              repositories you maintain
+  dit task issues -R owner/repo                open issues
+  dit task assign <issue> @login -R owner/repo  0G scope suggestions, review, confirm, assign
+      [--role contractor|employee] [--ttl minutes] [--ref branch]
+      [--path path ...]    explicit paths replace the suggested set; still reviewed
+      [--manual]          skip 0G and supply paths yourself
+      [--dry-run]         show the plan without creating a session
+      [--yes]             accept the displayed scope and assignment without prompting
+      defaults: contractor, 480 minutes; max: 1440 minutes
+
+Developers:
+  dit task [list] [--all]                      My Tasks; active tasks by default
+  dit task connect [session-id]                choose a task and remember it for this host
+  dit task show                               issue, scope and remaining time
+  dit task ls [dir]                            scoped files, including local drafts
+  dit task cat <path>                          your draft, or the scoped original
+  dit task edit <path> [--new] [--from file|-]  editor, local UTF-8 file, or stdin
+  dit task status                             edited and added files
+  dit task diff [path]                         review changes (requires git)
+  dit task submit -t title [-b description] [--path path ...] [--yes]
+                                               open/update a PR with selected drafts
+  dit task ask "question"                      sealed 0G assistant
+  dit task summarize                          issue summary and acceptance criteria
+  dit task calls                              assistant history
+  dit task discard [path] [--yes]              discard one/all drafts
+  dit task disconnect                         keep drafts, clear the current selection
+  dit task end [--yes]                         release access and discard drafts
+
+Use --session <id> or DIT_SESSION to select a task without connecting. All task commands support --host and
+--json. Scripts must pass --yes for assignment/submission/discard/end. A failed submission keeps your drafts.
+Existing repository files cannot be deleted or renamed through files proposals.
+
+Examples:
+  dit task assign 12 @dev -R acme/app
+  dit task assign 12 @dev -R acme/app --manual --path src/payments --yes
+  dit task connect
+  dit task edit src/payments/retry.ts
+  dit task ask "Explain the retry limit"
+  dit task diff
+  dit task submit -t "Fix payment retry"`,
   login: `dit login [--host URL] [--no-browser] [--token-stdin]
 
 Sign in with a device code: dit prints a short code and a URL, you approve it in the browser (where you are
@@ -67,16 +116,19 @@ Prints the login you are authenticated as; exits 1 when not logged in.
 Examples:
   dit whoami
   dit whoami --json`,
-  auth: `dit auth [status|login|logout|username <new-login>]
+  auth: `dit auth [status|login|logout|setup-git|username <new-login>]
 
 Shows each host you hold credentials for, whether the token still works, and where it comes from.
 
   dit auth username <new-login>   rename your account (PATCH /api/me); remotes with the old name need set-url
+  dit auth setup-git              install/repair the host-scoped Git credential helper
 
 Examples:
   dit auth status
   dit auth username alice`,
   clone: `dit clone <target> [dir] [git clone flags...]
+
+Compatibility alias. Prefer: git clone https://HOST/git/OWNER/REPO [dir]
 
 target is owner/repo, owner/repo@host, or a full Dithub URL. The repo is resolved through the API first
 (clear errors for missing repos or no access), then the real git clone runs. The token is never placed in the
@@ -89,6 +141,8 @@ Examples:
   dit clone alice/web@https://dithub.example.com
   dit clone https://dithub.app/git/alice/web.git`,
   init: `dit init [dir] [--remote[=name]] [--org o] [--private] [--description text] [git init flags]
+
+Compatibility alias. Prefer git init, then dit repo create, git remote add and git push.
 
 Runs git init. With --remote also creates the platform repo (name defaults to the folder name), adds
 \`origin\`, and wires the credential helper.
@@ -105,7 +159,7 @@ Examples:
   dit repo view [owner/repo]
   dit repo ls [path] [--ref r]      browse the tree without cloning (normal permissions)
   dit repo cat <path> [--ref r]     print a file
-  dit repo commits [-L n]           commits with anchor status and Sepolia / Arkiv tx
+  dit repo commits [-L n]           commits with anchor status and L1 / Arkiv tx
   dit repo ledger                   L1 anchors and Arkiv entities (with expiry blocks)
   dit repo collaborators list|add <login> [-p read|triage|write|maintain|admin]|remove <login>
   dit repo grant-team <team> <permission>        (organisation repos)
@@ -212,8 +266,9 @@ Example workflow:
            Then compares with the on-chain bundleHash and the live site. Exit 0 only when all match.
 
   site     recompute the hashes of the files the site serves and compare them with the latest release and
-           attestation on Sepolia (manual JSON-RPC, no libraries; override RPC with DIT_RPC_URL)
-  commit   look up the commit's anchors, check the Ethereum Sepolia receipt and that the Arkiv entity is in the ledger
+           attestation on Base (manual JSON-RPC, no libraries; DIT_NETWORK=sepolia for the testnet,
+           DIT_RPC_URL to override the RPC)
+  commit   look up the commit's anchors, check the L1 receipt (Base, or Sepolia for older anchors) and that the Arkiv entity is in the ledger
 
 Examples:
   dit verify site
@@ -223,8 +278,10 @@ Examples:
   dit verify rebuild --source ~/src/dithub --sandbox none --unsafe-local-build`,
   log: `dit log [--anchors] [git log flags]
 
+Compatibility alias. Prefer git log for history and dit repo commits for anchor information.
+
 Without --anchors this is git log. With --anchors it lists, for each commit of the current branch that
-Dithub knows about, its anchoring status and the Sepolia and Arkiv transaction hashes.
+Dithub knows about, its anchoring status and the L1 and Arkiv transaction hashes.
 
 Examples:
   dit log --oneline -5
@@ -233,7 +290,7 @@ Examples:
   credential: `dit credential get|store|erase
 
 Git credential helper protocol (stdin/stdout). Answers only for hosts you are logged in to; store and erase
-do nothing. Configured automatically by dit clone / dit init --remote / dit repo create.`,
+do nothing. Configured globally for the exact host by dit login or dit auth setup-git.`,
   completion: `dit completion bash|zsh
 
 Examples:

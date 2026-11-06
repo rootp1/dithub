@@ -1,8 +1,8 @@
 // Independent verifier: does the frontend served at SITE match the release recorded on-chain (and attested by CRE)?
 // Usage: SITE=https://dithub.app bun scripts/verify-site.ts   (exit code 1 on any FAIL)
-// Env: SITE, SEPOLIA_RPC_URL, REQUIRE_ATTESTATION=1 (treat a missing attestation as FAIL instead of WARN)
+// Env: SITE, L1_NETWORK / L1_RPC_URL, REQUIRE_ATTESTATION=1 (treat a missing attestation as FAIL instead of WARN)
 import { createHash } from 'node:crypto'
-import { attestationsAbi, loadDeployAddresses, publicClient, registryAbi } from './deploy-lib.ts'
+import { NETWORK, attestationsAbi, loadDeployAddresses, publicClient, registryAbi } from './deploy-lib.ts'
 
 const SITE = (process.env.SITE ?? 'https://dithub.app').replace(/\/$/, '')
 const sha256 = (b: Uint8Array) => `0x${createHash('sha256').update(b).digest('hex')}`
@@ -33,7 +33,7 @@ async function main() {
 
   // 3. Compare against the chain.
   const { registry, attestations } = loadDeployAddresses()
-  if (!registry) { add('DeployRegistry address', 'FAIL', 'not found in deployments/sepolia.json'); return }
+  if (!registry) { add('DeployRegistry address', 'FAIL', `not found in deployments/${NETWORK.name}.json`); return }
   const pc = publicClient()
   const [id, commit, bundleHash, url, publishedAt, publisher] = await pc.readContract({ address: registry, abi: registryAbi, functionName: 'latestRelease' })
   add('on-chain latestRelease', 'PASS', `#${id} by ${publisher} at ${new Date(Number(publishedAt) * 1000).toISOString()} (${url})`)

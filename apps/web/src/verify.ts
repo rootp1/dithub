@@ -1,7 +1,8 @@
 // Pure, dependency-free helpers for the "Verify this site" panel (browser-native: crypto.subtle + fetch).
-export const SEPOLIA_RPC = 'https://ethereum-sepolia-rpc.publicnode.com'
-export const REGISTRY = '0x9caa2fEB7880Bb81b7A3C3324c22C3293c65655e'      // deployments/sepolia.json
-export const ATTESTATIONS = '0x458d41E371141655c5b04618875aF22F83809BC9'
+import { NETWORK } from './network.ts'
+export const L1_RPC = NETWORK.rpcUrl
+export const REGISTRY = NETWORK.registry          // deployments/<network>.json; undefined until deployed there
+export const ATTESTATIONS = NETWORK.attestations  // undefined while Chainlink attestations are not deployed on this chain
 export const SEL_LATEST_RELEASE = '0x7be0ca5e'      // cast sig 'latestRelease()'
 export const SEL_LATEST_ATTESTATION = '0x24b6d96a'  // cast sig 'latestAttestation()'
 
@@ -45,7 +46,7 @@ export function decodeLatestAttestation(data: string): OnchainAttestation {
   return { releaseId: Number(big(w[0])), ok: big(w[1]) === 1n, observedAt: Number(big(w[2])) }
 }
 
-export async function ethCall(to: string, data: string, f: typeof fetch = fetch, rpc = SEPOLIA_RPC): Promise<string> {
+export async function ethCall(to: string, data: string, f: typeof fetch = fetch, rpc = L1_RPC): Promise<string> {
   const res = await f(rpc, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'eth_call', params: [{ to, data }, 'latest'] }) })
   const j = (await res.json()) as { result?: string; error?: { message?: string } }
   if (j.error || typeof j.result !== 'string') throw new Error(j.error?.message ?? 'RPC returned no result')
@@ -61,8 +62,8 @@ export function evaluate(i: { build: BuildJson; actual: Record<string, string>; 
   const bad = names.filter((n) => i.build.files![n]!.toLowerCase() !== i.actual[n]?.toLowerCase())
   c.push({ label: 'Served files match build.json', status: names.length && !bad.length ? 'pass' : 'fail', detail: bad.length ? `mismatch: ${bad.join(', ')}` : `${names.length} file(s) hashed in your browser` })
   c.push({ label: 'Recomputed bundleHash matches build.json', status: i.local === (i.build.bundleHash ?? '').toLowerCase() ? 'pass' : 'fail', detail: i.local })
-  if (i.chain && i.chain.id > 0) c.push({ label: 'Bundle hash matches the on-chain release (Sepolia)', status: i.local === i.chain.bundleHash.toLowerCase() ? 'pass' : 'fail', detail: `release #${i.chain.id}, on-chain ${i.chain.bundleHash}` })
-  else c.push({ label: 'Bundle hash matches the on-chain release (Sepolia)', status: 'fail', detail: i.chainErr ?? 'no release published on-chain' })
+  if (i.chain && i.chain.id > 0) c.push({ label: `Bundle hash matches the on-chain release (${NETWORK.label})`, status: i.local === i.chain.bundleHash.toLowerCase() ? 'pass' : 'fail', detail: `release #${i.chain.id}, on-chain ${i.chain.bundleHash}` })
+  else c.push({ label: `Bundle hash matches the on-chain release (${NETWORK.label})`, status: 'fail', detail: i.chainErr ?? 'no release published on-chain' })
   if (i.api?.bundleHash) c.push({ label: 'API (Arkiv mirror) agrees with the chain', status: i.chain && i.api.bundleHash.toLowerCase() === i.chain.bundleHash.toLowerCase() ? 'pass' : 'fail', detail: i.api.bundleHash })
   else c.push({ label: 'API (Arkiv mirror) agrees with the chain', status: 'info', detail: 'API returned no deployment' })
   if (i.att && i.att.releaseId > 0) c.push({ label: 'On-chain attestation (DeployAttestations)', status: i.att.ok && i.chain && i.att.releaseId === i.chain.id ? 'pass' : i.att.ok ? 'info' : 'fail', detail: `release #${i.att.releaseId} ${i.att.ok ? 'ok' : 'MISMATCH'} observed ${new Date(i.att.observedAt * 1000).toISOString()}` })

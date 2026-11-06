@@ -1,12 +1,13 @@
 import { UsageError } from '../errors.ts'
 
 export const TREE: Record<string, string[]> = {
-  login: [], logout: [], whoami: [], auth: ['status', 'login', 'logout', 'username'], clone: [], init: [], credential: ['get', 'store', 'erase'],
+  login: [], logout: [], whoami: [], auth: ['status', 'login', 'logout', 'setup-git', 'username'], clone: [], init: [], credential: ['get', 'store', 'erase'],
   repo: ['create', 'list', 'view', 'ls', 'cat', 'commits', 'ledger', 'collaborators', 'grant-team'], label: ['list', 'create', 'edit', 'delete'], token: ['create'], name: ['resolve'], deployments: ['list', 'latest'], recover: [], protect: ['set', 'remove', 'list'],
   issue: ['list', 'view', 'create', 'edit', 'events', 'comment', 'close', 'reopen', 'label', 'assign', 'import'],
   pr: ['list', 'view', 'create', 'edit', 'comment', 'diff', 'files', 'checks', 'review', 'merge', 'close', 'reopen', 'checkout'],
   org: ['list', 'view', 'create', 'members', 'team', 'log'],
   session: ['list', 'open', 'issue', 'ls', 'cat', 'export', 'ask', 'summarize', 'propose', 'calls', 'end', 'create', 'revoke', 'events'],
+  task: ['list', 'repos', 'issues', 'assign', 'connect', 'disconnect', 'show', 'ls', 'cat', 'edit', 'status', 'diff', 'discard', 'submit', 'ask', 'summarize', 'calls', 'end'],
   verify: ['site', 'commit', 'rebuild'], log: [], completion: ['bash', 'zsh'], version: [], help: [],
 }
 const GIT = 'push pull fetch status add commit branch checkout switch merge rebase diff stash remote tag reset restore show'

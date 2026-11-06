@@ -4,6 +4,9 @@
 issue and types `@username`. 0G reads the issue and picks the relevant files. The developer then works on only those
 files from a **My Tasks** list. The developer never gets repository access, and nothing is cloned or exported.
 
+The same workflow is available in the terminal with `dit task assign`, `dit task connect`, `dit task edit`,
+`dit task ask` and `dit task submit`. See [the dit task guide](dit-cli.md#0g-task-workflow-in-the-terminal).
+
 ## Install
 
 ```sh
@@ -47,8 +50,9 @@ revokes the token on the server (`DELETE /api/cli/token`) and deletes it locally
 
 ## Code map
 
-`src/core.ts` holds the pure logic: login parsing, scope checks, overlay diffing, response parsing, countdowns and error text. `src/html.ts` holds the pure webview HTML.
-`src/api.ts` is a typed client with no `vscode` import (timeouts, GET retries, local scope checks). The VS Code modules are `src/auth.ts`, `issuesView.ts`, `tasksView.ts`,
+`src/core.ts` and `src/api.ts` re-export the shared implementation in `packages/dit/src/tasks`: login parsing,
+scope checks, overlay diffing, response parsing and the typed HTTP client (timeouts, GET retries, local scope checks).
+Neither shared module imports `vscode`. `src/html.ts` holds the pure webview HTML. The VS Code modules are `src/auth.ts`, `issuesView.ts`, `tasksView.ts`,
 `taskStore.ts`, `taskFs.ts`, `assign.ts`, `assistantPanel.ts`, `submit.ts` and `extension.ts`.
 
 ## Tests

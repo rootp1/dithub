@@ -2,7 +2,8 @@
 export const esc = (s: unknown) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]!)
 export const short = (h: string | null | undefined) => (h ? `${h.slice(0, 10)}…${h.slice(-6)}` : '')
 export const ago = (d: string, now = Date.now()) => { const s = (now - new Date(d).getTime()) / 1000; return s < 60 ? 'just now' : s < 3600 ? `${Math.floor(s / 60)}m ago` : s < 86400 ? `${Math.floor(s / 3600)}h ago` : `${Math.floor(s / 86400)}d ago` }
-export const etherscanTx = (tx: string) => `https://sepolia.etherscan.io/tx/${encodeURIComponent(tx)}`
+import { NETWORK } from './network.ts'
+export const etherscanTx = (tx: string) => `${NETWORK.explorer}/tx/${encodeURIComponent(tx)}`
 /** Only 0x + 64 hex chars may become an Etherscan link. */
 export const isTxHash = (s: unknown): s is string => typeof s === 'string' && /^0x[0-9a-fA-F]{64}$/.test(s)
 

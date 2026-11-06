@@ -5,13 +5,14 @@ import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { parse, csv, intArg } from '../src/args.ts'
 import { UsageError, DitError, describeApiError } from '../src/errors.ts'
-import { parseRepoRef } from '../src/git.ts'
+import { configureGlobalCredentialHelper, parseRepoRef } from '../src/git.ts'
 import { splitCloneArgs } from '../src/cmd/clone.ts'
 import { credentialResponse, parseCredentialInput } from '../src/cmd/credential.ts'
 import { extractTar, checkMemberPath, parseTar } from '../src/tar.ts'
 import { table, stripAnsi, countdown, ago, trunc } from '../src/ui.ts'
 import { configDir, deleteCredential, findToken, normalizeHost, saveCredential, primaryHost } from '../src/config.ts'
-import { SEPOLIA } from '../src/constants.ts'
+import { l1 } from '../src/constants.ts'
+import { NETWORKS } from '../../../deployments/networks.ts'
 import { bundleHashOf, decodeLatestAttestation, decodeLatestRelease } from '../src/cmd/verify.ts'
 import { completion } from '../src/cmd/completion.ts'
 import { main } from '../src/cli.ts'
@@ -82,6 +83,17 @@ describe('git credential helper protocol', () => {
   test('refuses non-git paths when git sends one', () => {
     expect(credentialResponse({ protocol: 'https', host: 'h.example.com', path: 'api/me' }, lookup)).toBeNull()
     expect(credentialResponse({ protocol: 'https', host: 'h.example.com', path: 'git/a/b' }, lookup)).not.toBeNull()
+  })
+  test('login integration configures only the exact Dithub origin', () => {
+    const dir = tmp(), global = join(dir, 'gitconfig')
+    const env = { ...process.env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: global }
+    expect(configureGlobalCredentialHelper('https://dithub.example.com/', env)).toBe(true)
+    expect(configureGlobalCredentialHelper('https://dithub.example.com', env)).toBe(false)
+    const configured = readFileSync(global, 'utf8')
+    expect(configured).toContain('[credential "https://dithub.example.com"]')
+    expect(configured).toContain('credential')
+    expect(configured).not.toContain('github.com')
+    rmSync(dir, { recursive: true, force: true })
   })
 })
 
@@ -240,11 +252,19 @@ describe('credentials storage', () => {
 })
 
 describe('verify helpers and constants', () => {
-  test('contract constants match deployments/sepolia.json', () => {
+  test('contract addresses come from deployments/sepolia.json', () => {
     const d = JSON.parse(readFileSync(new URL('../../../deployments/sepolia.json', import.meta.url), 'utf8'))
-    expect(SEPOLIA.registry).toBe(d.contracts.DeployRegistry.address)
-    expect(SEPOLIA.attestations).toBe(d.contracts.DeployAttestations.address)
-    expect(SEPOLIA.chainId).toBe(d.chainId)
+    expect(NETWORKS.sepolia.registry).toBe(d.contracts.DeployRegistry.address)
+    expect(NETWORKS.sepolia.attestations).toBe(d.contracts.DeployAttestations.address)
+    expect(NETWORKS.sepolia.chainId).toBe(d.chainId)
+  })
+  test('DIT_NETWORK picks the chain; Base mainnet by default; typos throw', () => {
+    const prev = process.env.DIT_NETWORK
+    try {
+      delete process.env.DIT_NETWORK; expect(l1().chainId).toBe(8453)
+      process.env.DIT_NETWORK = 'sepolia'; expect(l1().chainId).toBe(11155111)
+      process.env.DIT_NETWORK = 'basee'; expect(() => l1()).toThrow(/unknown network/)
+    } finally { if (prev === undefined) delete process.env.DIT_NETWORK; else process.env.DIT_NETWORK = prev }
   })
   test('bundleHashOf sorts keys (matches apps/web/build.ts)', () => {
     expect(bundleHashOf({ b: '0x2', a: '0x1' })).toBe(bundleHashOf({ a: '0x1', b: '0x2' }))

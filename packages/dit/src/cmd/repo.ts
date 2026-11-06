@@ -66,7 +66,7 @@ export async function repoCmd(argv: string[]): Promise<number> {
       console.log(`${c.bold(`${r.owner}/${r.name}`)}  ${c.dim(r.visibility)}`)
       if (r.description) console.log(r.description)
       console.log(`default branch: ${r.defaultBranch}   you can push: ${r.canWrite ? 'yes' : 'no'}`)
-      console.log(`clone: dit clone ${r.owner}/${r.name}${ctx.host === primaryHost() ? '' : `@${ctx.host}`}`)
+      console.log(`clone: git clone ${ctx.host}/git/${r.owner}/${r.name}`)
       console.log(`url:   ${ctx.host}/git/${r.owner}/${r.name}`)
       const branches = r.refs.filter((x) => x.name.startsWith('refs/heads/'))
       if (branches.length) console.log(`branches: ${branches.map((b) => b.name.slice(11)).join(', ')}`)

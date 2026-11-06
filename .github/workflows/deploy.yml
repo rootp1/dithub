@@ -19,6 +19,9 @@ env:
   SITE_URL: https://dithub.app
   DEPLOY_USER: ${{ vars.DEPLOY_USER || 'root' }}
   DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/dheet' }}
+  # Which L1 production anchors to (base | sepolia). Flip the repo variable together with L1_NETWORK in infra/prod.env
+  # on the server (see docs/base-mainnet.md); the web bundle, release publish and site check all follow it.
+  L1_NETWORK: ${{ vars.L1_NETWORK || 'sepolia' }}
 
 jobs:
   deploy:
@@ -64,7 +67,7 @@ jobs:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
         run: |
           ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
-            "cd '$DEPLOY_PATH' && GIT_COMMIT='$GIT_COMMIT' docker compose -f infra/docker-compose.prod.yml up -d --build"
+            "cd '$DEPLOY_PATH' && GIT_COMMIT='$GIT_COMMIT' L1_NETWORK='$L1_NETWORK' docker compose -f infra/docker-compose.prod.yml up -d --build"
 
       - name: Wait for the new build to be served
         run: |
@@ -75,10 +78,10 @@ jobs:
           done
           echo "site did not serve commit $GIT_COMMIT in time" >&2; exit 1
 
-      - name: Publish release on-chain (DeployRegistry, Sepolia)
+      - name: Publish release on-chain (DeployRegistry on ${{ env.L1_NETWORK }})
         env:
           DHEET_DEPLOYER_KEY: ${{ secrets.DHEET_DEPLOYER_KEY }}
-          SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
+          L1_RPC_URL: ${{ env.L1_NETWORK == 'base' && secrets.BASE_RPC_URL || secrets.SEPOLIA_RPC_URL }}
           BUILD_FROM_SITE: '1'
         run: bun scripts/publish-release.ts
 
@@ -93,7 +96,7 @@ jobs:
       - name: Verify the live site against the chain
         env:
           SITE: ${{ env.SITE_URL }}
-          SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
+          L1_RPC_URL: ${{ env.L1_NETWORK == 'base' && secrets.BASE_RPC_URL || secrets.SEPOLIA_RPC_URL }}
         # Public RPCs sit behind load balancers whose nodes lag by a few blocks: right after publishing, one read can still see
         # the previous release. Retry before failing; a real mismatch keeps failing on every attempt.
         run: |

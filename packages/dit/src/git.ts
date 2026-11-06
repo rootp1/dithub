@@ -59,6 +59,29 @@ export function configureCredentialHelper(dir: string, origin: string): void {
   git(['config', '--local', '--add', key, helperValue()], { cwd: dir })
 }
 
+/**
+ * Make ordinary `git clone`, `git fetch`, `git pull` and `git push` use the
+ * credential saved by `dit login`. The entry is scoped to one exact origin;
+ * Git will not invoke dit for GitHub or any other host.
+ */
+export function configureGlobalCredentialHelper(origin: string, env: NodeJS.ProcessEnv = process.env): boolean {
+  const key = `credential.${normalizeHost(origin)}.helper`
+  const helper = helperValue()
+  const current = git(['config', '--global', '--get-all', key], { env })
+  if (current.code === 0 && current.out.split('\n').includes(helper)) return false
+
+  // An empty helper resets broader helpers (for example the OS keychain), so
+  // the Dithub token is never copied into a second credential store.
+  const reset = git(['config', '--global', '--add', key, ''], { env })
+  if (reset.code !== 0) throw new DitError(`could not configure Git for ${origin}: ${reset.err.trim() || 'git config failed'}`)
+  const added = git(['config', '--global', '--add', key, helper], { env })
+  if (added.code !== 0) {
+    git(['config', '--global', '--unset-all', key], { env })
+    throw new DitError(`could not configure Git for ${origin}: ${added.err.trim() || 'git config failed'}`)
+  }
+  return true
+}
+
 // ---------- remote URL parsing ----------
 export interface RepoRef { origin: string | null; owner: string; repo: string }
 const NAME = /^[A-Za-z0-9._-]+$/

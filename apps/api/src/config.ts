@@ -1,4 +1,7 @@
+import { networkOf } from '../../../deployments/networks.ts'
+
 const env = process.env
+const network = networkOf(env.L1_NETWORK ?? env.L1_CHAIN_ID)
 const root = new URL('../../..', import.meta.url).pathname
 
 export const config = {
@@ -10,8 +13,9 @@ export const config = {
   webDir: env.WEB_DIR ?? `${root}apps/web/dist`,
   hooksDir: env.HOOKS_DIR ?? `${root}apps/git/hooks`,
   l1: {
-    rpcUrl: env.L1_RPC_URL ?? 'https://ethereum-sepolia-rpc.publicnode.com',
-    chainId: Number(env.L1_CHAIN_ID ?? 11155111),
+    network,
+    rpcUrl: env.L1_RPC_URL ?? network.rpcUrl,
+    chainId: network.chainId,
   },
   cookieSecure: env.COOKIE_SECURE === '1',
 }

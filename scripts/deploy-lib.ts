@@ -2,10 +2,14 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createPublicClient, http, parseAbi, type Address } from 'viem'
-import { sepolia } from 'viem/chains'
+import { base, sepolia } from 'viem/chains'
+import { networkOf } from '../deployments/networks.ts'
 
 export const ROOT = resolve(import.meta.dir, '..')
-export const RPC_URL = process.env.SEPOLIA_RPC_URL || 'https://ethereum-sepolia-rpc.publicnode.com'
+/** L1_NETWORK (base | sepolia) or L1_CHAIN_ID picks the chain; Base mainnet when neither is set. */
+export const NETWORK = networkOf(process.env.L1_NETWORK ?? process.env.L1_CHAIN_ID)
+export const CHAIN = NETWORK.name === 'base' ? base : sepolia
+export const RPC_URL = process.env.L1_RPC_URL || (NETWORK.name === 'sepolia' && process.env.SEPOLIA_RPC_URL) || NETWORK.rpcUrl
 
 export const registryAbi = parseAbi([
   'function publish(bytes32 commit, bytes32 bundleHash, string url) returns (uint256 id)',
@@ -39,14 +43,14 @@ function find(obj: unknown, name: string, depth = 0): unknown {
 }
 
 export interface DeployAddresses { registry?: Address; attestations?: Address; startBlock: bigint; chainId: number }
-/** Env overrides (DEPLOY_REGISTRY, DEPLOY_ATTESTATIONS, DEPLOY_START_BLOCK) win; otherwise deployments/sepolia.json. Never hard-coded. */
-export function loadDeployAddresses(file = process.env.DEPLOYMENTS_FILE ?? resolve(ROOT, 'deployments/sepolia.json')): DeployAddresses {
+/** Env overrides (DEPLOY_REGISTRY, DEPLOY_ATTESTATIONS, DEPLOY_START_BLOCK) win; otherwise deployments/<network>.json. Never hard-coded. */
+export function loadDeployAddresses(file = process.env.DEPLOYMENTS_FILE ?? resolve(ROOT, `deployments/${NETWORK.name}.json`)): DeployAddresses {
   const json: unknown = existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {}
   const reg = find(json, 'DeployRegistry'), att = find(json, 'DeployAttestations')
   const start = process.env.DEPLOY_START_BLOCK
     ? BigInt(process.env.DEPLOY_START_BLOCK)
     : numOf(reg) ?? numOf(find(json, 'deployBlock')) ?? numOf(find(json, 'startBlock')) ?? 0n
-  const result: DeployAddresses = { startBlock: start, chainId: Number(find(json, 'chainId') ?? 11155111) }
+  const result: DeployAddresses = { startBlock: start, chainId: Number(find(json, 'chainId') ?? NETWORK.chainId) }
   const r = (process.env.DEPLOY_REGISTRY as Address | undefined) ?? addrOf(reg)
   const a = (process.env.DEPLOY_ATTESTATIONS as Address | undefined) ?? addrOf(att)
   if (r) result.registry = r
@@ -54,7 +58,7 @@ export function loadDeployAddresses(file = process.env.DEPLOYMENTS_FILE ?? resol
   return result
 }
 
-export const publicClient = () => createPublicClient({ chain: sepolia, transport: http(RPC_URL) })
+export const publicClient = () => createPublicClient({ chain: CHAIN, transport: http(RPC_URL) })
 
 export const gitCommitToBytes32 = (sha: string): `0x${string}` => {
   const clean = sha.trim().toLowerCase().replace(/^0x/, '')

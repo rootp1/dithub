@@ -5,6 +5,7 @@ import { flag, needArg, parse, str } from '../args.ts'
 import { ApiError, DitError, UsageError } from '../errors.ts'
 import { credentialsPath, deleteCredential, findToken, normalizeHost, primaryHost, saveCredential, setCurrentSession, storedHosts } from '../config.ts'
 import { c, info, printJson } from '../ui.ts'
+import { configureGlobalCredentialHelper } from '../git.ts'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -20,6 +21,18 @@ function openBrowser(url: string): void {
   try { const p = spawn(cmd, args, { stdio: 'ignore', detached: true }); p.on('error', () => {}); p.unref() } catch { /* the URL is printed anyway */ }
 }
 
+function finishLogin(host: string, token: string, login: string, json: boolean, detail = ''): void {
+  saveCredential(host, { token, login })
+  let gitConfigured = true
+  try { configureGlobalCredentialHelper(host) }
+  catch (err) {
+    gitConfigured = false
+    if (!json) info(c.yellow(`Logged in, but Git integration could not be configured: ${(err as Error).message}\nRun \`dit auth setup-git --host ${host}\` after fixing your global Git config.`))
+  }
+  if (json) printJson({ host, login, gitConfigured })
+  else if (gitConfigured) info(`${c.green('Logged in')} to ${host} as ${c.bold(login)}${detail}. Plain ${c.bold('git clone/fetch/pull/push')} is ready for this host.`)
+}
+
 export async function login(argv: string[]): Promise<number> {
   const p = parse(argv, { 'token-stdin': { type: 'boolean' }, 'no-browser': { type: 'boolean' } }, { allowPositionals: false })
   const host = primaryHost(str(p.values.host))
@@ -30,8 +43,7 @@ export async function login(argv: string[]): Promise<number> {
     if (!token) throw new UsageError('--token-stdin: nothing on stdin', 'Example: echo "$TOKEN" | dit login --token-stdin --host https://...')
     const me = await new Api({ host, token }).get<{ user: { login: string } | null }>('/api/me')
     if (!me.user) throw new DitError('that token was not accepted by the server', 1, 'Create a personal access token on the site and try again.')
-    saveCredential(host, { token, login: me.user.login })
-    if (flag(p.values.json)) printJson({ host, login: me.user.login }); else info(`${c.green('Logged in')} to ${host} as ${c.bold(me.user.login)} (token from stdin).`)
+    finishLogin(host, token, me.user.login, flag(p.values.json), ' (token from stdin)')
     return 0
   }
 
@@ -49,8 +61,7 @@ export async function login(argv: string[]): Promise<number> {
     await sleep(interval)
     try {
       const t = await anon.post<{ token: string; login: string }>('/api/cli/token', { deviceCode: dev.deviceCode })
-      saveCredential(host, { token: t.token, login: t.login })
-      if (flag(p.values.json)) printJson({ host, login: t.login }); else info(`${c.green('Logged in')} to ${host} as ${c.bold(t.login)}. Credentials saved to ${credentialsPath()}`)
+      finishLogin(host, t.token, t.login, flag(p.values.json), `. Credentials saved to ${credentialsPath()}`)
       return 0
     } catch (err) {
       if (!(err instanceof ApiError)) throw err
@@ -124,8 +135,16 @@ export async function authCmd(argv: string[]): Promise<number> {
   if (sub === 'status' || sub === undefined) return authStatus(rest)
   if (sub === 'login') return login(rest)
   if (sub === 'logout') return logout(rest)
+  if (sub === 'setup-git') {
+    const p = parse(rest, {}, { allowPositionals: false })
+    const host = primaryHost(str(p.values.host))
+    const changed = configureGlobalCredentialHelper(host)
+    if (flag(p.values.json)) printJson({ host, configured: true, changed })
+    else info(`${changed ? 'Configured' : 'Git is already configured for'} ${host}. Plain git clone/fetch/pull/push will use your dit credential.`)
+    return 0
+  }
   if (sub === 'username') return (await import('./extra.ts')).setUsername(rest)
-  needArg({ values: {}, positionals: [] }, 0, 'status|login|logout')
+  needArg({ values: {}, positionals: [] }, 0, 'status|login|logout|setup-git')
   return 2
 }
 void normalizeHost

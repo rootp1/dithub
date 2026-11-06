@@ -1,4 +1,4 @@
-// dit: the Git-compatible command-line client for Dithub.
+// dit: platform operations for Dithub. Source-control operations belong to git.
 import { ApiError, DitError, UsageError, describeApiError } from './errors.ts'
 import { EXIT, VERSION } from './constants.ts'
 import { gitInherit, withHelperEnv } from './git.ts'
@@ -12,6 +12,7 @@ import { orgCmd } from './cmd/org.ts'
 import { prCmd } from './cmd/pr.ts'
 import { protect, repoCmd } from './cmd/repo.ts'
 import { sessionCmd } from './cmd/session.ts'
+import { taskCmd } from './cmd/task.ts'
 import { deploymentsCmd, labelCmd, nameCmd, tokenCmd } from './cmd/extra.ts'
 import { verifyCmd } from './cmd/verify.ts'
 import { TOP, helpFor } from './help.ts'
@@ -22,11 +23,11 @@ import { printJson } from './ui.ts'
 type Handler = (argv: string[]) => Promise<number> | number
 export const COMMANDS: Record<string, Handler> = {
   login, logout, whoami, auth: authCmd, clone, init, repo: repoCmd, protect, issue: issueCmd, pr: prCmd, org: orgCmd,
-  recover: (argv) => import('./cmd/recover.ts').then((m) => m.recoverCmd(argv)), session: sessionCmd, verify: verifyCmd, name: nameCmd, deployments: deploymentsCmd, label: labelCmd, token: tokenCmd, log: logCmd, credential, completion,
+  recover: (argv) => import('./cmd/recover.ts').then((m) => m.recoverCmd(argv)), session: sessionCmd, task: taskCmd, verify: verifyCmd, name: nameCmd, deployments: deploymentsCmd, label: labelCmd, token: tokenCmd, log: logCmd, credential, completion,
   version: (argv) => { if (argv.includes('--json')) printJson({ version: VERSION }); else console.log(`dit ${VERSION}`); return 0 },
 }
 
-/** Anything that is not a dit command is git. When we hold a token for the default host, git may use it through the credential helper. */
+/** Compatibility bridge for older releases. New workflows invoke git directly. */
 function passthrough(argv: string[]): number {
   let env = process.env
   try { const h = primaryHost(); if (findToken(h)) env = withHelperEnv(h) } catch { /* no config: plain git */ }

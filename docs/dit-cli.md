@@ -1,8 +1,9 @@
-# dit: the Dithub command-line client
+# Git + dit: the Dithub command-line interface
 
-`dit` is a Git-compatible client for the whole platform. `dit clone owner/repo` replaces `git clone`, every other
-git command passes straight through (`dit push`, `dit status`, `dit rebase`, ...), and the platform features
-(issues, pull requests, orgs, protection, task-scoped sessions, verification) are first-class commands.
+Use `git` for source control and `dit` for Dithub platform features. After `dit login`, ordinary `git clone`,
+`git fetch`, `git pull` and `git push` authenticate through a credential helper scoped to the exact Dithub host.
+Issues, pull requests, organisations, protection, task-scoped sessions and verification remain first-class `dit`
+commands. The older Git wrappers under `dit` remain compatibility aliases for now, but new examples use Git.
 
 It is a separate package (`packages/dit`, name `@dithub/dit`, bin `dit`) and an HTTP client for the API in
 `apps/api/src`. The older protocol-level CLI `dithub` (local network folder) is untouched.
@@ -26,12 +27,12 @@ Requirements: `git` >= 2.30 on PATH. No other dependencies. `HTTPS_PROXY` is hon
 ```sh
 dit login                          # prints a code, you approve it in the browser; nothing is pasted
 dit whoami
-dit clone alice/web                # private repos work once you are logged in
-cd web && echo hi > hi.txt && dit add . && dit commit -m "hi" && dit push
+git clone https://dithub.app/git/alice/web  # private repos work once you are logged in
+cd web && echo hi > hi.txt && git add . && git commit -m "hi" && git push
 dit issue create -t "Bug" -b "details"
 dit pr create --push -t "Fix it"
 dit pr merge 1 --squash
-dit log --anchors                  # per-commit Sepolia / Arkiv transactions
+dit repo commits                   # per-commit Sepolia / Arkiv transactions
 dit verify site                    # does the served frontend match the on-chain release?
 ```
 
@@ -67,18 +68,15 @@ Environment overrides: `DIT_HOST`, `DIT_TOKEN` (used only for the primary host, 
 Where things live: `$DIT_CONFIG_DIR`, else `$XDG_CONFIG_HOME/dit`, else `~/.config/dit`:
 `credentials.json` (per host, mode 0600, directory 0700) and `config.json` (default host, current session; no secrets).
 
-## How `dit clone` keeps tokens out of argv, URLs and `.git/config`
+## How ordinary Git authenticates without exposing tokens
 
-`dit clone` resolves the repo through the API first, then runs the real `git clone <host>/git/<owner>/<repo>`
-with environment-only config (`GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_n`, `GIT_CONFIG_VALUE_n`) that sets
-`credential.<host>.helper` to `!dit credential`. The environment carries no secret: git calls `dit credential get`
-when the server answers 401, and the helper reads the token from the credentials file (or `DIT_TOKEN`) and answers
-only for hosts you are logged in to (scheme and port must match; `store` and `erase` do nothing). After the clone
-the repo is configured with the same helper (plus an empty `helper =` entry first, so the OS keychain helper never
-stores the token), so plain `git push` and `git pull` keep working. The remote URL is the plain
-`https://host/git/owner/repo`. Any other `dit <git command>` gets the same environment-only helper when you hold a
-token for the default host. The test `scripts/e2e-dit.ts` asserts that no token appears in `.git/config`,
-`git config --list`, `git remote -v` or any command output.
+`dit login` adds a host-scoped `credential.<host>.helper = !dit credential` entry to the global Git config. The
+entry contains no secret. Git calls `dit credential get` only when that exact scheme, host and port need a
+credential; the helper reads the token from the protected dit credential file (or `DIT_TOKEN`) and answers only
+for the smart-HTTP `/git/...` path. An empty host-scoped helper entry prevents a broader OS keychain helper from
+copying the token elsewhere. Run `dit auth setup-git` to install or repair this integration without logging in
+again. Remote URLs stay plain, such as `https://dithub.app/git/owner/repo`, so tokens never appear in argv, URLs,
+`.git/config`, `git remote -v` or command output.
 
 ## Command reference
 
@@ -86,11 +84,9 @@ Global: `--host URL`, `--json`, `-R/--repo owner/repo`, `-h/--help`. `dit <comma
 
 | Command | What it does |
 |---|---|
-| `login [--token-stdin] [--no-browser]`, `logout`, `whoami`, `auth status` | authentication |
+| `login [--token-stdin] [--no-browser]`, `logout`, `whoami`, `auth status`, `auth setup-git` | authentication and ordinary-Git integration |
 | `auth username <new-login>` | rename your account (`PATCH /api/me`); the stored credential follows |
 | `token create [--name N] [--out FILE \| --show]` | mint another personal access token; printed once, only when stdout is not a TTY or with `--show`, else written to `--out` (mode 0600) |
-| `clone <owner/repo \| owner/repo@host \| URL> [dir] [git flags]` | clone (flags such as `--depth 1 -b dev` pass to git) |
-| `init [dir] [--remote[=name]] [--org o] [--private] [--description t]` | `git init`, optionally create the platform repo + `origin` |
 | `repo create [name] [--org o] [--private] [-d t] [--push]` | create a repo; inside a git repo it adds `origin` and can push |
 | `repo list [--owner x]`, `repo view [owner/repo]` | list / show (view infers from `origin`) |
 | `repo ls [path] [--ref r]`, `repo cat <path> [--ref r]`, `repo commits [-L n]`, `repo ledger` | browse tree / file / commits (with anchor status and Sepolia + Arkiv tx) / ledger (L1 anchors, Arkiv entities with expiry blocks) without cloning; normal permissions, no session header |
@@ -104,12 +100,15 @@ Global: `--host URL`, `--json`, `-R/--repo owner/repo`, `-h/--help`. `dit <comma
 | `pr list\|view\|create\|edit\|comment\|diff\|files\|checks\|review\|merge\|close\|reopen\|checkout` | pull requests (`pr comment` uses the shared issue-thread endpoint) |
 | `org list\|view\|create\|members add\|remove\|team create\|add\|remove\|log` | organisations and teams |
 | `session ...` | task-scoped sessions (below), including `session calls` (assistant history with sealed / REFUSED badges) |
+| `task ...` | the 0G extension workflow in the terminal: assign, connect, scoped editing, assistant, review and PR submission |
 | `verify site \| verify commit <sha> \| verify rebuild [...]` | independent verification (see below) |
 | `recover <repo-id\|owner/repo> [dir]` | rebuild a repo from Arkiv alone (see below) |
-| `log [--anchors]` | `git log`; `--anchors` adds anchoring status and tx hashes |
 | `credential get\|store\|erase` | git credential helper |
 | `completion bash\|zsh`, `version` | misc |
-| anything else | passed to `git` unchanged (TTY, stdio and exit code preserved) |
+
+Git itself handles `clone`, `init`, `add`, `commit`, `status`, `diff`, `log`, `fetch`, `pull`, `push`, `branch`,
+`switch`, `checkout`, `merge`, `rebase`, `tag`, `stash`, `restore`, `reset` and `remote`. Existing `dit clone`,
+`dit init`, `dit log` and unknown-command passthrough remain compatibility aliases during migration.
 
 Notes:
 
@@ -123,6 +122,68 @@ Notes:
 - `log --anchors` joins `git log` with `GET /api/repos/:o/:r/commits` (latest 100 commits). Statuses:
   `pending`, `arkiv_done`, `anchored`, `failed`, `done_private` (private repos are not mirrored on-chain).
 - Branch protection does not bind repository admins (platform rule); to see it block a push, push as a writer.
+
+## 0G task workflow in the terminal
+
+`dit task` provides the extension workflow without VS Code, a clone or an export. Sign in with `dit login`.
+Both clients share the typed API client and scope checks in `packages/dit/src/tasks`.
+
+Maintainer:
+
+```sh
+dit task repos
+dit task issues -R acme/app
+dit task assign 12 @dev -R acme/app
+# 0G suggests paths and explains each one. Review/replace the paths, then confirm.
+# Defaults: contractor, 8 hours. Override with --role employee --ttl 120.
+dit task assign 12 @dev -R acme/app --dry-run --json   # inspect the plan without assigning
+```
+
+To choose scope yourself, use `--manual --path src/payments --path docs/api`. Each path is checked against
+the repository tree before assignment. Suggestions and validation use the same ref; the approved ref is sent
+when creating the session. Session creation also assigns the issue in the same server transaction. If 0G fails,
+the command reports the failure and requires explicit paths or interactive manual selection.
+
+Developer:
+
+```sh
+dit task                          # your active task inbox; --all includes inactive tasks
+dit task connect                   # select a task (or supply its session id)
+dit task show                      # issue, scope and countdown
+dit task ls src/payments
+dit task edit src/payments/retry.ts # opens one file in $VISUAL/$EDITOR
+dit task edit src/payments/test.ts --new --from ./test.ts
+dit task ask "Explain the retry limit"
+dit task summarize
+dit task calls
+dit task status
+dit task diff                      # review the edits
+dit task submit -t "Fix payment retry" -b "Retry up to n times"
+dit task end                       # confirm releasing access and discarding remaining drafts
+```
+
+`edit --from -` reads UTF-8 text from stdin. Source contents are preserved exactly, including `#` lines and
+trailing newlines. `submit --path <file>` (repeatable) submits selected drafts; successful submission clears only
+those drafts, and failure keeps them. As in the extension, submitted changes live in the PR branch; reading the
+file afterwards shows the session ref again. Repository-file deletion/rename is not supported.
+
+`dit task disconnect` keeps drafts and clears the current selection; reconnect to resume. `dit task discard
+[path]` discards one or all drafts. `--session <id>` or `DIT_SESSION` selects a task for a single command.
+The selection is shared with `dit session open` and isolated per host. Scripts use `--yes` to confirm assignment,
+submission, discard or end, and can use `--json` for structured stdout; progress goes to stderr.
+
+Every task operation rechecks `/api/tasks` before accessing repository contents or drafts. Out-of-scope reads
+and writes are rejected locally and checked again by the server. Editing rechecks the grant after the editor
+closes. Expired/revoked tasks cannot be resumed through the CLI. Authentication uses dit's existing per-host
+credentials; tokens only travel in the Authorization header.
+
+Drafts and their original comparison contents live in `$DIT_CONFIG_DIR/task-drafts` (or the usual dit config
+directory), with mode 0600 files inside a 0700 directory, isolated by host and session. Editor/diff temporary
+files are removed afterwards. These are local source copies; editors may create their own backups. Expiry
+blocks CLI access but does not erase already saved drafts from disk; explicit `end` discards them.
+
+Validation: `bun test packages/dit/test/task.test.ts` runs actual CLI subprocesses against a local API fixture
+through assignment, connect, scoped edits, assistant calls, selected submission and end, plus denial/failure cases.
 
 ## Task-scoped sessions (IP-protected workflow)
 
@@ -244,7 +305,7 @@ verified chunks.
 | `not signed in or token rejected` | `dit login` (or check `DIT_TOKEN`); `dit auth status` shows what is stored |
 | `not found` on a repo you know exists | it is private and you are logged out, or you have no access (the API answers 404 on purpose) |
 | `cannot reach https://...` | network, proxy (`HTTPS_PROXY`) or wrong `--host`/`DIT_HOST`; GETs are retried on 502/503 |
-| `git push` asks for a password | the clone predates dit: run `dit login`, then `dit clone` again, or use `dit push` (which injects the helper) |
+| `git push` asks for a password | run `dit auth setup-git`; also check `dit auth status` and the remote with `git remote -v` |
 | browser says "Sign in first" on `/cli` | sign in on the site in the same browser, then reload the page |
 | login code expired | codes last 10 minutes and work once; run `dit login` again |
 | `no active session` | `dit session list` then `dit session open <id>` |
