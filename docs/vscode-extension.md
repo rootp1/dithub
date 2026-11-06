@@ -12,7 +12,7 @@ bun run package:vscode        # -> packages/vscode/dithub-vscode.vsix
 code --install-extension packages/vscode/dithub-vscode.vsix --force
 ```
 
-Setting: `dithub.host` (default `https://172-105-43-184.sslip.io`). Run **Dithub: Sign in**. The extension shows a one-time code
+Setting: `dithub.host` (default `https://dithub.app`). Run **Dithub: Sign in**. The extension shows a one-time code
 and opens `<host>/cli?code=…`. Check that the code matches, sign in on the site, and press Approve. **Dithub: Sign out**
 revokes the token on the server (`DELETE /api/cli/token`) and deletes it locally.
 

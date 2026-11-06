@@ -9,7 +9,7 @@ push to main, ci green ──> deploy.yml
     2. rsync sources to the Linode server (excludes infra/prod.env, node_modules, .data, dist)
     3. ssh: GIT_COMMIT=<sha> docker compose -f infra/docker-compose.prod.yml up -d --build
        (Dockerfile ARG GIT_COMMIT -> dist/build.json carries the commit)
-    4. wait until https://172-105-43-184.sslip.io/build.json reports that commit
+    4. wait until https://dithub.app/build.json reports that commit
     5. scripts/publish-release.ts   -> DeployRegistry.publish(commit, bundleHash, url) on Sepolia (idempotent)
     6. POST CRE_TRIGGER_URL (skipped when the secret is absent) -> Chainlink CRE deploy-attestor
     7. scripts/verify-site.ts       -> PASS/FAIL table, exit 1 on mismatch
@@ -62,5 +62,5 @@ forge test --root packages/contracts
 actionlint .github/workflows/*.yml
 GIT_COMMIT=$(git rev-parse HEAD) bun apps/web/build.ts
 DRY_RUN=1 bun scripts/publish-release.ts
-SITE=https://172-105-43-184.sslip.io bun scripts/verify-site.ts     # add REQUIRE_ATTESTATION=1 to fail when CRE has not attested
+SITE=https://dithub.app bun scripts/verify-site.ts     # add REQUIRE_ATTESTATION=1 to fail when CRE has not attested
 ```

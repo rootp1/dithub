@@ -1,6 +1,6 @@
 # Hackathon submission: Dithub
 
-Live: https://172-105-43-184.sslip.io. Repo: this repository (MIT). Quick judge check: `SITE=https://172-105-43-184.sslip.io bun scripts/verify-site.ts`.
+Live: https://dithub.app. Repo: this repository (MIT). Quick judge check: `SITE=https://dithub.app bun scripts/verify-site.ts`.
 Evidence column: "tested" means we ran it and it passed; "present" means the code or doc exists but was not verified end to end by this document's author.
 
 ## Track: Arkiv
@@ -21,7 +21,7 @@ Evidence column: "tested" means we ran it and it passed; "present" means the cod
 | Privacy | private repos/orgs never mirrored; 0G sealed inference for sessions (`docs/zerog.md`) |
 | Security | RBAC at pre-receive, SIWE, container hardening, Foundry tests; unaudited (stated) |
 | Verifiable frontend demo | `scripts/verify-site.ts` (tested locally against real Sepolia contracts: PASS, and FAIL when a file is tampered), `scripts/publish-release.ts` (tested, idempotent), `.github/workflows/deploy.yml` |
-| Live deployment | https://172-105-43-184.sslip.io (serves `/build.json` only after the lead redeploys the new build) |
+| Live deployment | https://dithub.app (serves `/build.json` only after the lead redeploys the new build) |
 
 ## Track: Chainlink Best workflow with CRE
 | Requirement | Evidence |

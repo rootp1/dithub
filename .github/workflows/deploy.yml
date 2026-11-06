@@ -16,7 +16,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  SITE_URL: https://172-105-43-184.sslip.io
+  SITE_URL: https://dithub.app
   DEPLOY_USER: ${{ vars.DEPLOY_USER || 'root' }}
   DEPLOY_PATH: ${{ vars.DEPLOY_PATH || '/opt/dheet' }}
 

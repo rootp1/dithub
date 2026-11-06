@@ -1,6 +1,6 @@
 {
   "schedule": "0 */15 * * * *",
-  "siteUrl": "https://172-105-43-184.sslip.io",
+  "siteUrl": "https://dithub.app",
   "chainSelectorName": "ethereum-testnet-sepolia",
   "registryAddress": "0x9caa2fEB7880Bb81b7A3C3324c22C3293c65655e",
   "attestationsAddress": "0x458d41E371141655c5b04618875aF22F83809BC9",

@@ -1,10 +1,10 @@
 // Independent verifier: does the frontend served at SITE match the release recorded on-chain (and attested by CRE)?
-// Usage: SITE=https://172-105-43-184.sslip.io bun scripts/verify-site.ts   (exit code 1 on any FAIL)
+// Usage: SITE=https://dithub.app bun scripts/verify-site.ts   (exit code 1 on any FAIL)
 // Env: SITE, SEPOLIA_RPC_URL, REQUIRE_ATTESTATION=1 (treat a missing attestation as FAIL instead of WARN)
 import { createHash } from 'node:crypto'
 import { attestationsAbi, loadDeployAddresses, publicClient, registryAbi } from './deploy-lib.ts'
 
-const SITE = (process.env.SITE ?? 'https://172-105-43-184.sslip.io').replace(/\/$/, '')
+const SITE = (process.env.SITE ?? 'https://dithub.app').replace(/\/$/, '')
 const sha256 = (b: Uint8Array) => `0x${createHash('sha256').update(b).digest('hex')}`
 type Row = { check: string; status: 'PASS' | 'FAIL' | 'WARN'; detail: string }
 const rows: Row[] = []

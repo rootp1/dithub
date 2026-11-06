@@ -81,7 +81,7 @@ The workflow compiles to WASM (`bunx cre-compile main.ts out.wasm` inside `cre/d
 
 ## Known gap
 
-The live site (`https://172-105-43-184.sslip.io`) does not yet serve `/build.json` (it returns the SPA index page), so until
+The live site (`https://dithub.app`) does not yet serve `/build.json` (it returns the SPA index page), so until
 the web server ships `build.json` the workflow will correctly attest `ok=false` for the live site. The served `app.js`,
 `index.html`, `style.css` already hash identically to local `apps/web/dist` (bundleHash `0xe30e835b...604b`, registry release #2).
 

@@ -87,7 +87,7 @@ Examples:
   dit clone alice/web
   dit clone alice/web my-dir --depth 1 --branch dev
   dit clone alice/web@https://dithub.example.com
-  dit clone https://172-105-43-184.sslip.io/git/alice/web.git`,
+  dit clone https://dithub.app/git/alice/web.git`,
   init: `dit init [dir] [--remote[=name]] [--org o] [--private] [--description text] [git init flags]
 
 Runs git init. With --remote also creates the platform repo (name defaults to the folder name), adds

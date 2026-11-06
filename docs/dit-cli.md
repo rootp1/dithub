@@ -35,7 +35,7 @@ dit log --anchors                  # per-commit Sepolia / Arkiv transactions
 dit verify site                    # does the served frontend match the on-chain release?
 ```
 
-Default host: `$DIT_HOST`, else the host in `config.json`, else `https://172-105-43-184.sslip.io`. Override per
+Default host: `$DIT_HOST`, else the host in `config.json`, else `https://dithub.app`. Override per
 command with `--host URL`. Repo-scoped commands infer `owner/repo` and the host from the `origin` remote, or take
 `-R owner/repo`. Every command accepts `--json`; colour is used only when stdout is a TTY and `NO_COLOR` is unset.
 

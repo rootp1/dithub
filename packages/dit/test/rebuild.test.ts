@@ -74,7 +74,8 @@ const repoRoot = resolve(import.meta.dir, '../../..')
 const reach = await fetch(SEPOLIA.rpcUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}', signal: AbortSignal.timeout(8000) }).then((r) => r.ok, () => false)
 const hasCommit = Bun.spawnSync(['git', 'cat-file', '-e', '4c22d2f6deb3d70950f183246c12e6d66184abfb^{commit}'], { cwd: repoRoot }).exitCode === 0
 const it = reach && hasCommit ? test : test.skip
-const base: RebuildOpts = { release: 11, source: repoRoot, site: 'https://172-105-43-184.sslip.io', sandbox: 'none', unsafeLocalBuild: true, json: false }
+// No explicit site: release 11 is old, so the live site may legitimately serve a newer release (reported as WARN, not FAIL).
+const base: RebuildOpts = { release: 11, source: repoRoot, sandbox: 'none', unsafeLocalBuild: true, json: false }
 
 describe('rebuild: release 11 against Sepolia', () => {
   it('MATCH: source == on-chain release == live site', async () => {
@@ -84,12 +85,18 @@ describe('rebuild: release 11 against Sepolia', () => {
     expect(r.rows.find((x) => x.check === 'source == on-chain release')?.detail).toBe('MATCH')
   }, 180_000)
   it('MISMATCH: a deliberately modified file is detected and named', async () => {
-    const r = await rebuild(base, { rehash: (dir) => {
-      const copy = mkdtempSync(join(tmpdir(), 'dit-tamper-'))
-      for (const f of readdirSync(dir)) copyFileSync(join(dir, f), join(copy, f))
-      writeFileSync(join(copy, 'app.js'), 'console.log("tampered")')
-      try { return rehashDist(copy) } finally { rmSync(copy, { recursive: true, force: true }) }
-    } })
+    // The "live site" is stubbed with the genuine release-11 build, so only the tampered app.js differs and must be named.
+    let genuine: ReturnType<typeof rehashDist> | undefined
+    const r = await rebuild({ ...base, site: 'https://stub.invalid' }, {
+      rehash: (dir) => {
+        genuine = rehashDist(dir)
+        const copy = mkdtempSync(join(tmpdir(), 'dit-tamper-'))
+        for (const f of readdirSync(dir)) copyFileSync(join(dir, f), join(copy, f))
+        writeFileSync(join(copy, 'app.js'), 'console.log("tampered")')
+        try { return rehashDist(copy) } finally { rmSync(copy, { recursive: true, force: true }) }
+      },
+      fetchLive: async () => genuine!,
+    })
     expect(r.ok).toBe(false)
     expect(r.rows.find((x) => x.check === 'source == on-chain release')?.status).toBe('FAIL')
     expect(r.rows.some((x) => x.check.trim() === 'file app.js' && x.status === 'FAIL')).toBe(true)

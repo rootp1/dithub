@@ -1,3 +1,4 @@
+# Canonical site. Wallet sign-in (SIWE) is bound to this host and cookies are per host, so every other name redirects here.
 {$SITE_HOST} {
 	encode zstd gzip
 	header {
@@ -14,4 +15,9 @@
 			response_header_timeout 10m
 		}
 	}
+}
+
+# Old and alternate names (e.g. www, the original sslip.io address) keep working by redirecting to the canonical host.
+{$REDIRECT_HOSTS:www.dithub.app} {
+	redir https://{$SITE_HOST}{uri} permanent
 }

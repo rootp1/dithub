@@ -10,7 +10,7 @@ import { dirname, join } from 'node:path'
 import { createSiweMessage } from 'viem/siwe'
 import { privateKeyToAccount } from 'viem/accounts'
 
-const BASE = process.env.BASE_URL ?? 'https://172-105-43-184.sslip.io'
+const BASE = process.env.BASE_URL ?? 'https://dithub.app'
 const host = new URL(BASE).host
 const REPO = process.env.DEMO_REPO ?? 'payments-service'
 const INTERN_LOGIN = process.env.INTERN_LOGIN ?? 'rootp1-intern'

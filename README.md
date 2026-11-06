@@ -5,7 +5,7 @@ infrastructure: every commit is recorded as an Arkiv entity carrying the Ethereu
 are served is provably the one released on-chain. It also contains the original protocol work: a Git-compatible decentralised remote (`git-remote-dithub`) with an
 SDK, CLI, indexer and Solidity contracts (see `plan.md`).
 
-Live: https://172-105-43-184.sslip.io (single Linode, Caddy TLS, Docker Compose). Licence: MIT.
+Live: https://dithub.app (single Linode, Caddy TLS, Docker Compose). Licence: MIT.
 
 ## Architecture
 
@@ -48,8 +48,8 @@ bun run typecheck
 bun test packages/sdk/test packages/e2e/local-flow.test.ts   # SDK + local two-identity git flow
 bun run test:contracts                                       # forge test --root packages/contracts
 bun scripts/e2e-platform.ts                                  # platform e2e against a local API
-BASE_URL=https://172-105-43-184.sslip.io bun scripts/smoke-prod.ts
-SITE=https://172-105-43-184.sslip.io bun scripts/verify-site.ts
+BASE_URL=https://dithub.app bun scripts/smoke-prod.ts
+SITE=https://dithub.app bun scripts/verify-site.ts
 ```
 
 ## CROPS
@@ -72,7 +72,7 @@ Cloud Firewall (22/80/443), fail2ban. Contracts are tested with Foundry but **no
 and the Chainlink CRE workflow independently fetches the live site, recomputes the hash and writes `ok` on-chain to `DeployAttestations`. Anyone can check:
 
 ```sh
-SITE=https://172-105-43-184.sslip.io bun scripts/verify-site.ts
+SITE=https://dithub.app bun scripts/verify-site.ts
 ```
 
 It re-hashes every served file, recomputes the bundle hash, compares with `latestRelease()` and the CRE attestation, prints PASS/FAIL/WARN per check and exits 1 on any mismatch

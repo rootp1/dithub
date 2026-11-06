@@ -8,7 +8,7 @@ import { privateKeyToAccount } from 'viem/accounts'
 import { sepolia } from 'viem/chains'
 import { RPC_URL, ROOT, gitCommitToBytes32, loadDeployAddresses, publicClient, registryAbi } from './deploy-lib.ts'
 
-const SITE_URL = process.env.SITE_URL ?? 'https://172-105-43-184.sslip.io'
+const SITE_URL = process.env.SITE_URL ?? 'https://dithub.app'
 const buildFile = process.env.BUILD_JSON ?? resolve(ROOT, 'apps/web/dist/build.json')
 // BUILD_FROM_SITE=1: publish the build.json the deployed server actually serves (the Docker build is the artefact users get).
 const build = (process.env.BUILD_FROM_SITE === '1'

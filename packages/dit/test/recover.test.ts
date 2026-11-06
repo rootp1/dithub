@@ -81,7 +81,7 @@ describe('new commands are registered', () => {
 
 // ---- real production Arkiv (skipped without a key or network) ----
 const key = process.env.ARKIV_ACCESS_KEY ?? ''
-const net = key ? await fetch('https://172-105-43-184.sslip.io/api/health', { signal: AbortSignal.timeout(6000) }).then((r) => r.ok, () => false) : false
+const net = key ? await fetch('https://dithub.app/api/health', { signal: AbortSignal.timeout(6000) }).then((r) => r.ok, () => false) : false
 describe('dit recover against production Arkiv', () => {
   (net ? test : test.skip)('rootp1/smoke-mw4iu8wl is rebuilt from Arkiv alone and passes git fsck', async () => {
     const dest = join(mkdtempSync(join(tmpdir(), 'dit-rec-')), 'out')

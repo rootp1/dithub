@@ -230,7 +230,7 @@ describe('credentials storage', () => {
   })
   test('host precedence and normalisation', () => {
     rmSync(join(dir, 'config.json'), { force: true })
-    expect(primaryHost()).toBe('https://172-105-43-184.sslip.io')
+    expect(primaryHost()).toBe('https://dithub.app')
     process.env.DIT_HOST = 'localhost:3300'
     expect(primaryHost()).toBe('http://localhost:3300')
     expect(primaryHost('example.com/')).toBe('https://example.com')

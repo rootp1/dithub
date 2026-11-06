@@ -1,5 +1,5 @@
 export const VERSION = '0.1.0'
-export const DEFAULT_HOST = 'https://172-105-43-184.sslip.io'
+export const DEFAULT_HOST = 'https://dithub.app'
 
 /** Sepolia contracts (kept in step with deployments/sepolia.json; a unit test checks it). */
 export const SEPOLIA = {

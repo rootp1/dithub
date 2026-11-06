@@ -230,7 +230,7 @@
       "properties": {
         "dithub.host": {
           "type": "string",
-          "default": "https://172-105-43-184.sslip.io",
+          "default": "https://dithub.app",
           "description": "Dithub server URL. Your sign-in token is stored per host in VS Code's secret storage, never in settings."
         }
       }
