@@ -105,7 +105,9 @@ async function handlePush(job: { id: number; payload: { pushId: number; repoId: 
       if (kb * 1024 <= CODE_MAX_BYTES) {
         try { store.createRepo(`${repoId}`, repoId) } catch { /* already registered */ }
         const published = publishRepository(diskPath, repoId, store)
-        const up = await uploadManifestToArkiv({ manifest: published.manifest, localStore: store, connection: arkiv })
+        const known = new Set<string>((await sql`SELECT encode(chunk_hash,'hex') AS h FROM arkiv_chunks WHERE repo_id = ${repoNum}`).map((r: { h: string }) => `0x${r.h}`))
+        const up = await uploadManifestToArkiv({ manifest: published.manifest, localStore: store, connection: arkiv, skipChunks: known })
+        for (const h of up.uploadedChunkHashes) await sql`INSERT INTO arkiv_chunks (repo_id, chunk_hash) VALUES (${repoNum}, ${hexBuf(h)}) ON CONFLICT DO NOTHING`
         await trackEntity('dheet-manifest-v1', up.manifestEntityKey, up.transactionHashes.at(-1)!, up.expiresAt, repoNum, job.id)
         await recordActivity(arkiv, { kind: 'push', repoId, seq: ++seq, actor: relayer, ref: push.ref_name, title: `push ${push.ref_name}`,
           manifestHash: published.manifestHash, ...(l1Tx ? { l1ChainId: L1_CHAIN, l1Tx } : {}), body: { manifestEntity: up.manifestEntityKey } })

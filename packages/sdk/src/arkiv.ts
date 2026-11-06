@@ -15,6 +15,37 @@ import { hexToBytes, sha256 } from './hash.ts'
 import { LocalNetworkStore } from './local-store.ts'
 import type { Hex, RepositoryManifest } from './types.ts'
 
+/**
+ * Arkiv's RPC can return a stale nonce when transactions go out back to back; the SDK surfaces that as a generic
+ * "Execution error without revert data". A nonce-too-low failure means the transaction was NOT sent, so retrying is safe.
+ */
+export async function withNonceRetry<T>(operation: () => Promise<T>, attempts = 8): Promise<T> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await operation()
+    } catch (error) {
+      const e = error as { message?: string; shortMessage?: string; details?: string; cause?: { message?: string } }
+      const text = `${e.message ?? ''} ${e.shortMessage ?? ''} ${e.details ?? ''} ${e.cause?.message ?? ''}`
+      if (attempt >= attempts || !/nonce|underpriced/i.test(text)) throw error
+      await new Promise((resolve) => setTimeout(resolve, 1500 * attempt))
+    }
+  }
+}
+
+/**
+ * Send one Arkiv write and wait until it is mined before returning. The SDK returns as soon as the transaction is broadcast, so the next
+ * write would reuse the same nonce while the first is still pending ("replacement transaction underpriced"). Serialising on the receipt
+ * removes the race instead of retrying around it.
+ */
+export async function sendAndConfirm<R extends { txHash: ViemHex }>(
+  connection: { publicClient: { waitForTransactionReceipt: (args: { hash: ViemHex; timeout?: number }) => Promise<unknown> } },
+  operation: () => Promise<R>,
+): Promise<R> {
+  const result = await withNonceRetry(operation)
+  await connection.publicClient.waitForTransactionReceipt({ hash: result.txHash, timeout: 90_000 })
+  return result
+}
+
 export const ArkivChunkSchema = defineSchema('dheet-chunk-v1', {
   v: u64().indexed(),
   kind: str().indexed(),
@@ -57,6 +88,8 @@ export interface ArkivUploadResult {
   manifestEntityKey: ViemHex
   transactionHashes: ViemHex[]
   chunkEntities: number
+  /** chunk hashes written by this call (skipped ones are not listed) */
+  uploadedChunkHashes: Hex[]
   expiresAt: bigint
 }
 
@@ -85,11 +118,14 @@ export async function uploadManifestToArkiv(args: {
   localStore: LocalNetworkStore
   connection: ReturnType<typeof createArkivConnection>
   coldId?: string
+  /** lowercase 0x chunk hashes that already exist on Arkiv for this repo; they are not uploaded again */
+  skipChunks?: ReadonlySet<string>
 }): Promise<ArkivUploadResult> {
   const { manifest, localStore, connection } = args
   const transactionHashes: ViemHex[] = []
   let expiresAt = 0n
   let chunkEntities = 0
+  const uploadedChunkHashes: Hex[] = []
   const now = BigInt(Math.floor(Date.now() / 1000))
   const flags = { readonly: true, permissionlessExtension: true }
   const expiration = ExpirationTime.max()
@@ -105,7 +141,8 @@ export async function uploadManifestToArkiv(args: {
     chunkHash: Hex
     content: Uint8Array
   }) => {
-    const result = await connection.walletClient.createEntity(
+    if (args.skipChunks?.has(values.chunkHash.toLowerCase())) return
+    const result = await sendAndConfirm(connection, () => connection.walletClient.createEntity(
       ArkivChunkSchema,
       {
         v: u64(1n),
@@ -127,10 +164,11 @@ export async function uploadManifestToArkiv(args: {
         content: values.content,
       },
       { expiration, flags },
-    )
+    ))
     transactionHashes.push(result.txHash)
     expiresAt = result.expiresAt
     chunkEntities += 1
+    uploadedChunkHashes.push(values.chunkHash)
   }
 
   for (const object of manifest.objects) {
@@ -185,7 +223,7 @@ export async function uploadManifestToArkiv(args: {
     }
   }
 
-  const manifestResult = await connection.walletClient.createEntity(
+  const manifestResult = await sendAndConfirm(connection, () => connection.walletClient.createEntity(
     ArkivManifestSchema,
     {
       v: u64(1n),
@@ -205,13 +243,14 @@ export async function uploadManifestToArkiv(args: {
       content: inlineContent,
     },
     { expiration, flags },
-  )
+  ))
   transactionHashes.push(manifestResult.txHash)
 
   return {
     manifestEntityKey: manifestResult.entityKey,
     transactionHashes,
     chunkEntities,
+    uploadedChunkHashes,
     expiresAt: manifestResult.expiresAt,
   }
 }

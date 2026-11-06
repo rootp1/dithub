@@ -2,7 +2,7 @@ import { ExpirationTime, defineSchema } from '@arkiv-network/sdk'
 import { addr, key, str, u64, bytes } from '@arkiv-network/sdk/schema'
 import { and, asc, eq } from '@arkiv-network/sdk/query'
 import type { Hex as ViemHex } from 'viem'
-import type { createArkivConnection } from './arkiv.ts'
+import { sendAndConfirm, type createArkivConnection } from './arkiv.ts'
 import type { Hex } from './types.ts'
 
 export const ZERO_KEY = `0x${'00'.repeat(32)}` as Hex
@@ -65,7 +65,7 @@ export function padOid(oid: string): Hex {
 export async function recordActivity(connection: Connection, input: ActivityInput) {
   const content = new TextEncoder().encode(JSON.stringify(input.body ?? {}))
   if (content.byteLength > 100 * 1024) throw new Error('Activity body too large')
-  const result = await connection.walletClient.createEntity(
+  const result = await sendAndConfirm(connection, () => connection.walletClient.createEntity(
     ArkivActivitySchema,
     {
       v: u64(1n),
@@ -83,12 +83,12 @@ export async function recordActivity(connection: Connection, input: ActivityInpu
       content,
     },
     { expiration: ExpirationTime.max(), flags },
-  )
+  ))
   return { entityKey: result.entityKey, txHash: result.txHash, expiresAt: result.expiresAt }
 }
 
 export async function claimName(connection: Connection, name: string, repoId: Hex) {
-  const result = await connection.walletClient.createEntity(
+  const result = await sendAndConfirm(connection, () => connection.walletClient.createEntity(
     ArkivNameSchema,
     {
       v: u64(1n),
@@ -98,7 +98,7 @@ export async function claimName(connection: Connection, name: string, repoId: He
       ctime: u64(BigInt(Math.floor(Date.now() / 1000))),
     },
     { expiration: ExpirationTime.max(), flags },
-  )
+  ))
   return { entityKey: result.entityKey, txHash: result.txHash, expiresAt: result.expiresAt }
 }
 
