@@ -294,3 +294,14 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 0; 
 .org-meta { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 4px; }
 .org-counts { margin-top: 2px; font-size: 12px; }
 @media (max-width: 900px) { .home-grid { grid-template-columns: minmax(0, 1fr); } .home-side { order: -1; } }
+
+/* Repository navigation follows the compact, content-first conventions of code hosts. */
+.tabs { overflow-x: auto; overscroll-behavior-inline: contain; scrollbar-width: thin; }
+.tabs a { white-space: nowrap; text-transform: none; }
+.feature-placeholder { margin-top: 24px; padding: 48px 24px; text-align: center; }
+.feature-placeholder h2 { margin: 16px 0 8px; }
+.feature-placeholder p { max-width: 36rem; margin: 8px auto; }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}

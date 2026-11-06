@@ -164,9 +164,10 @@ async function repoSettings(owner: string, name: string) {
 async function repoPage(owner: string, name: string, tab: string, params: URLSearchParams, sub?: string) {
   const repo = await api(`/api/repos/${owner}/${name}`)
   const base = `/${esc(owner)}/${esc(name)}`
-  const tabNames = ['code', 'commits', 'issues', 'pulls', ...(repo.canWrite ? ['sessions'] : []), 'ledger', 'settings']
+  const tabNames = ['code', 'commits', 'issues', 'pulls', ...(repo.canWrite ? ['sessions'] : []), 'ledger', 'actions', 'projects', 'security', 'settings']
   let wire: (() => void) | undefined
-  const tabs = tabNames.map((t) => `<a class="${tab === t ? 'on' : ''}"${tab === t ? ' aria-current="page"' : ''} href="${base}${t === 'code' ? '' : '/' + t}">${t}</a>`).join('')
+  const labels: Record<string, string> = { code: 'Code', commits: 'Commits', issues: 'Issues', pulls: 'Pull requests', sessions: 'Sessions', ledger: 'Ledger', actions: 'Actions', projects: 'Projects', security: 'Security', settings: 'Settings' }
+  const tabs = tabNames.map((t) => `<a class="${tab === t ? 'on' : ''}"${tab === t ? ' aria-current="page"' : ''} href="${base}${t === 'code' ? '' : '/' + t}">${labels[t]}</a>`).join('')
   let body = ''
   if (tab === 'code') {
     const path = params.get('path') ?? '', file = params.get('file')
@@ -189,6 +190,9 @@ async function repoPage(owner: string, name: string, tab: string, params: URLSea
         a.arkivTx ? `<span class="chip mono" title="Arkiv transaction ${esc(a.arkivTx)}">Arkiv ${short(a.arkivTx)}</span>` : ''].join('')
       return `<div><b>${esc(c.subject)}</b><div class="muted">${esc(c.author)} · ${ago(c.committedAt)} · <code>${esc(c.oid?.slice(2, 9))}</code></div><div>${chips}</div></div>`
     }).join('') || '<p class="muted">No commits yet.</p>'}</div>`
+  } else if (['actions', 'projects', 'security'].includes(tab)) {
+    const descriptions: Record<string, string> = { actions: 'Automate builds, tests, and other repository workflows.', projects: 'Organize and track work across your repository.', security: 'Review security information and manage repository vulnerabilities.' }
+    body = `<section class="card feature-placeholder"><span class="chip">Coming soon</span><h2>${labels[tab]}</h2><p class="muted">${descriptions[tab]}</p><p class="muted">This feature is not available yet.</p></section>`
   } else if (tab === 'settings') {
     body = await repoSettings(owner, name)
   } else if (tab === 'issues' || tab === 'pulls' || tab === 'sessions') {
