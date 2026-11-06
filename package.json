@@ -22,7 +22,9 @@
     "check": "bun run typecheck && bun run test && bun run test:contracts && bun run build",
     "api": "bun apps/api/src/index.ts",
     "worker": "bun apps/worker/src/index.ts",
-    "build:app": "bun apps/web/build.ts"
+    "build:app": "bun apps/web/build.ts",
+    "build:dit": "bun build --compile packages/dit/src/index.ts --outfile packages/dit/dist/dit",
+    "test:dit": "bun test packages/dit"
   },
   "dependencies": {
     "@arkiv-network/sdk": "1.0.1",

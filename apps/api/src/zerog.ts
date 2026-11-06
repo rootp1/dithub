@@ -52,7 +52,7 @@ function scrub(text: string): string {
 }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-export const chat: ChatFn = async (args) => {
+const chatOnce: ChatFn = async (args) => {
   const key = env().ZG_API_KEY
   if (!key) throw new ZeroGError('0G Private Computer is not configured (ZG_API_KEY missing)', null, 'not_configured', null)
   const cfg = zgConfig()
@@ -108,4 +108,32 @@ export const chat: ChatFn = async (args) => {
     await sleep(Number.isFinite(ra) && ra > 0 ? Math.min(ra * 1000, 10_000) : 500 * 2 ** (attempt - 1))
   }
   throw lastErr ?? new ZeroGError('0G call failed', null, null, null)
+}
+
+/**
+ * Provider-side failures (a compute node unreachable, TEE quote fetch failing) are per-model-route problems. Try the next sealed-tier
+ * model before giving up. Still never fakes an answer: if every model fails the caller gets the error, and `model` in the result is
+ * always the one that actually ran (the assistant stores it next to the 0G request id).
+ */
+export const chat: ChatFn = async (args) => {
+  const primary = args.model || zgConfig().model
+  const fallbacks = (env().ZG_FALLBACK_MODELS ?? 'glm-5.3').split(',').map((m) => m.trim()).filter(Boolean)
+  const models = [...new Set([primary, ...fallbacks])]
+  let last: unknown
+  for (const model of models) {
+    try {
+      try { return await chatOnce({ ...args, model }) }
+      catch (error) {
+        // Reasoning models can spend the whole token budget thinking and return nothing: retry once with more room.
+        if (!(error instanceof ZeroGError) || error.code !== 'empty_completion') throw error
+        return await chatOnce({ ...args, model, maxTokens: Math.min((args.maxTokens ?? 800) * 3, 4096) })
+      }
+    } catch (error) {
+      last = error
+      const status = error instanceof ZeroGError ? error.status : null
+      const emptyAgain = error instanceof ZeroGError && error.code === 'empty_completion'
+      if (status !== 502 && status !== 503 && status !== 504 && !emptyAgain) throw error
+    }
+  }
+  throw last
 }

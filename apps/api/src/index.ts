@@ -13,6 +13,7 @@ import { issues } from './issues.ts'
 import { pulls } from './pulls.ts'
 import { assistant } from './assistant.ts'
 import { deployments } from './deployments.ts'
+import { cliAuth } from './cli-auth.ts'
 import { sessions, resolveAccess, scopeGuard, filterTree, scopedCommits, logSessionEvent } from './sessions.ts'
 
 requireConfig()
@@ -89,6 +90,7 @@ app.route('/api', pulls)
 app.route('/api', sessions)
 app.route('/', assistant)
 app.route('/api', deployments)
+app.route('/', cliAuth)
 
 // ---------- repos ----------
 const nameOk = (n: string) => /^[A-Za-z0-9._-]{1,100}$/.test(n) && n !== '.' && n !== '..' && !n.endsWith('.git')

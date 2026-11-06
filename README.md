@@ -109,3 +109,18 @@ CRE wallet `0xB8Fc5e8C8B58a96b02980438Ed72EfE983100742`.
 - The CRE workflow is validated by simulation and a mock forwarder in `deployments/sepolia.json`; check `SUBMISSION.md` for whether a live DON deployment exists.
 - Wallet login is EOA-only (no EIP-1271); the chain head of the RBAC hash chain is not yet anchored on L1.
 - The project began before the hackathon (see `SUBMISSION.md`).
+
+## dit CLI
+
+`dit` is the Git-compatible command-line client for Dithub: `dit clone owner/repo` replaces `git clone`, other git
+commands pass through, and issues, pull requests, orgs, branch protection, task-scoped sessions and on-chain
+verification are built in. Sign in with `dit login` (device code, nothing pasted; tokens never appear in argv, URLs
+or `.git/config`).
+
+```sh
+bun link --cwd packages/dit      # or: bun run build:dit && cp packages/dit/dist/dit /usr/local/bin/
+dit login && dit clone alice/web
+dit log --anchors && dit verify site
+```
+
+Full reference: [docs/dit-cli.md](docs/dit-cli.md). Tests: `bun run test:dit`, `bun scripts/e2e-dit.ts`.
