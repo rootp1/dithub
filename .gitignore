@@ -23,3 +23,7 @@ cre/.env
 cre/**/node_modules/
 smoke-*/
 .*.bun-build
+
+# VS Code extension build output
+packages/vscode/dist/
+*.vsix

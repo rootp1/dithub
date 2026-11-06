@@ -9,6 +9,7 @@ COPY apps/web/package.json apps/web/package.json
 COPY packages/sdk/package.json packages/sdk/package.json
 COPY packages/cli/package.json packages/cli/package.json
 COPY packages/dit/package.json packages/dit/package.json
+COPY packages/vscode/package.json packages/vscode/package.json
 COPY packages/remote-helper/package.json packages/remote-helper/package.json
 COPY packages/indexer/package.json packages/indexer/package.json
 COPY packages/web/package.json packages/web/package.json

@@ -24,7 +24,10 @@
     "worker": "bun apps/worker/src/index.ts",
     "build:app": "bun apps/web/build.ts",
     "build:dit": "bun build --compile --no-compile-autoload-dotenv packages/dit/src/index.ts --outfile packages/dit/dist/dit",
-    "test:dit": "bun test packages/dit"
+    "test:dit": "bun test packages/dit",
+    "build:vscode": "bun run --cwd packages/vscode build",
+    "package:vscode": "bun run --cwd packages/vscode package",
+    "test:vscode": "bun test packages/vscode"
   },
   "dependencies": {
     "@arkiv-network/sdk": "1.0.1",
