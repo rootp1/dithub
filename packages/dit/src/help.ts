@@ -267,9 +267,10 @@ Example workflow:
            Then compares with the on-chain bundleHash and the live site. Exit 0 only when all match.
 
   site     recompute the hashes of the files the site serves and compare them with the latest release and
-           attestation on Base (manual JSON-RPC, no libraries; DIT_NETWORK=sepolia for the testnet,
+           attestation on Ethereum Sepolia by default (manual JSON-RPC, no libraries; DIT_NETWORK=base
+           for the Base mainnet deployment,
            DIT_RPC_URL to override the RPC)
-  commit   look up the commit's anchors, check the L1 receipt (Base, or Sepolia for older anchors) and that the Arkiv entity is in the ledger
+  commit   look up the commit's anchors, check the L1 receipt (Ethereum Sepolia or Base) and that the Arkiv entity is in the ledger
 
 Examples:
   dit verify site

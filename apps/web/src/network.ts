@@ -1,5 +1,5 @@
-// The L1 this build anchors to. build.ts replaces process.env.DITHUB_NETWORK at bundle time (base | sepolia), so the
-// "Verify this site" panel reads the chain without trusting the API. Unset (tests, dev) means Base mainnet.
+// The L1 this build anchors to. build.ts replaces process.env.DITHUB_NETWORK at bundle time, so the
+// "Verify this site" panel reads the chain without trusting the API. Unset means Ethereum Sepolia.
 import { NETWORKS, networkOf, type Network } from '../../../deployments/networks.ts'
 
 export const NETWORK: Network = networkOf(process.env.DITHUB_NETWORK)

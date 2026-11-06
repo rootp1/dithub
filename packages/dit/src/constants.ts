@@ -3,7 +3,7 @@ export const DEFAULT_HOST = 'https://dithub.app'
 
 import { NETWORKS, networkOf, type Network } from '../../../deployments/networks.ts'
 
-/** The chain `dit verify` / `dit rebuild` read: DIT_NETWORK (base | sepolia), default Base mainnet. Read per call so tests can switch. */
+/** The chain `dit verify` / `dit rebuild` read: DIT_NETWORK, default Ethereum Sepolia. Read per call so tests can switch. */
 export const l1 = (): Network => networkOf(process.env.DIT_NETWORK)
 /** DIT_RPC_URL only overrides the selected network; other chains (an old Sepolia anchor) use their public RPC. */
 export const rpcUrlFor = (n: Network = l1()) => (n.chainId === l1().chainId && process.env.DIT_RPC_URL) || n.rpcUrl

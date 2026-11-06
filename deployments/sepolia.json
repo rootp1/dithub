@@ -1,24 +1,25 @@
 {
   "chainId": 11155111,
-  "deployedAt": "2026-11-06",
+  "deployedAt": "2026-11-07",
   "forwarder": "0x15fC6ae953E024d975e77382eEeC56A9101f9F88",
-  "forwarderKind": "MockKeystoneForwarder (CRE simulation)",
+  "forwarderKind": "MockKeystoneForwarder (CRE simulation via `cre workflow simulate --broadcast`)",
   "owner": "0xe5F2164bD59ba9F19fC76F1Aa1E55199a159A16b",
   "contracts": {
     "DeployRegistry": {
-      "address": "0x9caa2fEB7880Bb81b7A3C3324c22C3293c65655e",
-      "txHash": "0x7a78c25117364e9d22845d2323d14df423be66eb84af475fbdb8d0816ac02ad7",
-      "deployBlock": 12073825
+      "address": "0x654079488907fcC1279f7215a851Cb04c8241232",
+      "txHash": "0x122bd57995517b62154a9ca3d49091e6b3afcf4eaea8045bb9fc0fb0097a2b69",
+      "deployBlock": 12079581
     },
     "DeployAttestations": {
-      "address": "0x458d41E371141655c5b04618875aF22F83809BC9",
-      "txHash": "0x0e24bea9af288e5c9a714c87a8db85ab4ee7d5404a6e1503dc645a7159ab1be3",
-      "deployBlock": 12073828
+      "address": "0x0366e20a4143C8E45B9c65eCB5B03CD6FC367683",
+      "txHash": "0x04ebe37ddc983d6141f6e7563f7a859fddc895187ed1ca97e797e68705f71907",
+      "deployBlock": 12079583
+    },
+    "RefRegistry": {
+      "address": "0xBFBF6f788cD66F2f4107F2355eb70cef4143c9E6",
+      "txHash": "0xced909bdb3acaf488f09c978b2c4891548ec2e6659a16a2938de2f8d493b269e",
+      "deployBlock": 12078992
     }
   },
-  "smokeTest": {
-    "publishTxHash": "0xc2f98d6f0e07dabdadb6e41afc45ac15230f92d3d90f27c58e216f50b3902bed",
-    "releaseId": 1,
-    "note": "release 1 is a smoke-test entry (url https://example.invalid/smoke)"
-  }
+  "refRegistryOwner": "0x9045a577c909d7F6D7f7Bfe8586a8Ba13f81c2dC"
 }

@@ -224,9 +224,8 @@ own staging area is untouched.
 ## Verification
 
 - `dit verify site [--host URL]` fetches `/build.json` and every file, recomputes the sha256 of each file and the
-  bundle hash (sha256 of the sorted name-to-hash JSON, as `apps/web/build.ts` does), then calls the Sepolia public
-  RPC by hand (`eth_call` for `latestRelease()` and `latestAttestation()` on the contracts from
-  `deployments/sepolia.json`, mirrored in `packages/dit/src/constants.ts`) and compares. Set `DIT_RPC_URL` to use
+  bundle hash (sha256 of the sorted name-to-hash JSON, as `apps/web/build.ts` does), then calls the Ethereum Sepolia public
+  RPC by hand (`eth_call`) using `deployments/sepolia.json`, mirrored in `packages/dit/src/constants.ts`, and compares. Set `DIT_RPC_URL` to use
   another RPC. Exit 1 on any FAIL.
 - `dit verify commit <sha|HEAD> [-R o/r]` looks up the commit's anchors through the API, checks the L1 transaction
   receipt with `eth_getTransactionReceipt` (status success), and that the Arkiv entity is listed in

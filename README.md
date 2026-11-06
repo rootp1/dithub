@@ -168,13 +168,13 @@ Ethereum Sepolia (chain 11155111), the earlier testnet deployment; old anchors s
 
 | Contract | Address |
 | --- | --- |
-| DeployRegistry | `0x9caa2fEB7880Bb81b7A3C3324c22C3293c65655e` (deploy block 12073825) |
-| DeployAttestations | `0x458d41E371141655c5b04618875aF22F83809BC9` (deploy block 12073828) |
-| RefRegistry | `0x9f66f0CDc76423D26692437e3964e5CeB7F9341B` |
-| Forwarder (in `deployments/sepolia.json`) | `0x15fC6ae953E024d975e77382eEeC56A9101f9F88`, a MockKeystoneForwarder (CRE simulation) |
+| DeployRegistry | `0x654079488907fcC1279f7215a851Cb04c8241232` (deploy block 12079581) |
+| DeployAttestations | `0x0366e20a4143C8E45B9c65eCB5B03CD6FC367683` (deploy block 12079583) |
+| RefRegistry | `0xBFBF6f788cD66F2f4107F2355eb70cef4143c9E6` (deploy block 12078992) |
+| Forwarder (in `deployments/sepolia.json`) | `0xF8344CFd5c43616a4366C34E3EEE75af79a74482`, the production KeystoneForwarder |
 
 Wallets (public addresses): relayer / Arkiv writer `0x7e290CA88091C8635cC78fE58bB1f6e1361b097c`; deployer / registry owner `0xe5F2164bD59ba9F19fC76F1Aa1E55199a159A16b`;
-CRE wallet `0xB8Fc5e8C8B58a96b02980438Ed72EfE983100742`.
+deployer / DeployRegistry owner `0xe5F2164bD59ba9F19fC76F1Aa1E55199a159A16b` (RefRegistry is still owned by `0x9045a577c909d7F6D7f7Bfe8586a8Ba13f81c2dC`).
 
 ## Repository map
 
@@ -183,7 +183,7 @@ CRE wallet `0xB8Fc5e8C8B58a96b02980438Ed72EfE983100742`.
 
 ## Honest limitations
 
-- Arkiv is a testnet (Rabdi); the L1 is Base mainnet (`docs/base-mainnet.md`). The contracts are not audited.
+- Arkiv is a testnet (Rabdi); code defaults to Ethereum Sepolia while the currently deployed site remains on Base mainnet until cutover. The contracts are not audited.
 - Swarm runs on mainnet: postage costs real xBZZ on Gnosis Chain.
 - One server; API and worker share one SQLite file, so they cannot be split across hosts. Back up the `db` and `beemainnet` volumes (`sqlite3 dithub.sqlite ".backup out.sqlite"` is safe while running); the relayer key in `infra/prod.env` holds real ETH on Base mainnet, so keep it funded but small.
 - Swarm data lives only as long as its postage batch is topped up; Bee has no read proofs either.

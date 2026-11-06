@@ -6,7 +6,7 @@ const root = resolve(import.meta.dir), outdir = resolve(root, 'dist')
 mkdirSync(outdir, { recursive: true })
 const r = await Bun.build({ entrypoints: [resolve(root, 'src/app.ts')], outdir, target: 'browser', minify: true,
   // Which L1 the verify panel and explorer links use. Part of the bundle, so it is covered by bundleHash.
-  define: { 'process.env.DITHUB_NETWORK': JSON.stringify(process.env.L1_NETWORK ?? process.env.L1_CHAIN_ID ?? 'base') } })
+  define: { 'process.env.DITHUB_NETWORK': JSON.stringify(process.env.L1_NETWORK ?? process.env.L1_CHAIN_ID ?? 'sepolia') } })
 if (!r.success) throw new AggregateError(r.logs, 'web build failed')
 await Promise.all(['index.html', 'style.css'].map((f) => Bun.write(resolve(outdir, f), Bun.file(resolve(root, 'src', f)))))
 

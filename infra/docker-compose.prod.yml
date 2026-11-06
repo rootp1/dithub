@@ -2,7 +2,7 @@ name: dheet-prod
 # api and worker share one SQLite file on the `db` volume (WAL mode); there is no database server.
 # Swarm runs as a Bee light node on the internal network only; its API is never published.
 x-app: &app
-  build: { context: .., dockerfile: Dockerfile, args: { GIT_COMMIT: "${GIT_COMMIT:-dev}", L1_NETWORK: "${L1_NETWORK:-base}" } }
+  build: { context: .., dockerfile: Dockerfile, args: { GIT_COMMIT: "${GIT_COMMIT:-dev}", L1_NETWORK: "${L1_NETWORK:-sepolia}" } }
   env_file: [prod.env]                # SESSION_SECRET, DITHUB_DEVICE_KEY, BEE_POSTAGE_BATCH_ID, keys, RPCs
   environment:
     DATABASE_PATH: /data/db/dithub.sqlite
@@ -14,15 +14,15 @@ services:
   bee:
     image: ethersphere/bee:2.8.3
     command: ["start"]
-    env_file: [.env.bee]              # BEE_PASSWORD, BEE_BLOCKCHAIN_RPC_ENDPOINT (Gnosis Chain); see bee.env.example
+    env_file: [.env.bee]              # BEE_PASSWORD, BEE_BLOCKCHAIN_RPC_ENDPOINT (Sepolia); see bee.env.example
     environment:
-      BEE_MAINNET: "true"
+      BEE_MAINNET: "false"            # Swarm testnet (Sepolia, network id 10); xBZZ/Gnosis is not used
       BEE_FULL_NODE: "false"          # light node: uploads and downloads, no storage reserve
       BEE_SWAP_ENABLE: "true"         # needed to buy postage batches and pay for bandwidth
       BEE_API_ADDR: ":1633"
       BEE_P2P_ADDR: ":1634"
       BEE_DATA_DIR: /home/bee/.bee
-    volumes: ["beemainnet:/home/bee/.bee"]   # mainnet only (beedata is the old Sepolia node); node identity, chequebook state and batches: back this up
+    volumes: ["beetestnet:/home/bee/.bee"]   # node identity, chequebook state and batches: back this up
     # no healthcheck: the image ships no curl/wget. The api reports Swarm reachability itself.
     restart: unless-stopped
     security_opt: ["no-new-privileges:true"]
@@ -51,4 +51,4 @@ services:
     volumes: ["./Caddyfile:/etc/caddy/Caddyfile:ro", "caddydata:/data", "caddyconfig:/config"]
     depends_on: { api: { condition: service_healthy } }
     restart: unless-stopped
-volumes: { db: {}, repos: {}, workerdata: {}, beemainnet: {}, caddydata: {}, caddyconfig: {} }
+volumes: { db: {}, repos: {}, workerdata: {}, beetestnet: { name: bee-testnet, external: true }, caddydata: {}, caddyconfig: {} }

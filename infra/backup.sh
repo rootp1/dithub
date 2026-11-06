@@ -16,7 +16,7 @@ docker cp "$API:/data/db/.backup.sqlite" "$out/dithub.sqlite"
 docker exec "$API" rm -f /data/db/.backup.sqlite
 
 docker run --rm -v dheet-prod_repos:/src:ro -v "$out":/out alpine tar -czf /out/repos.tgz -C /src .
-docker run --rm -v dheet-prod_beemainnet:/src:ro -v "$out":/out alpine tar -czf /out/beemainnet.tgz -C /src .
+docker run --rm -v bee-testnet:/src:ro -v "$out":/out alpine tar -czf /out/beetestnet.tgz -C /src .
 cp -p /opt/dheet/infra/prod.env "$out/prod.env"
 [ -f /opt/dheet/infra/.env.bee ] && cp -p /opt/dheet/infra/.env.bee "$out/env.bee"
 

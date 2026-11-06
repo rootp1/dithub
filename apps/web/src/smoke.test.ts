@@ -17,7 +17,7 @@ test('diff renderer neutralises hostile file names and lines', () => {
   expect(h).toContain('&lt;img')
 })
 test('etherscan links only for real tx hashes', () => {
-  expect(etherscanTx('0x' + 'ab'.repeat(32))).toBe('https://basescan.org/tx/0x' + 'ab'.repeat(32))
+  expect(etherscanTx('0x' + 'ab'.repeat(32))).toBe('https://sepolia.etherscan.io/tx/0x' + 'ab'.repeat(32))
   expect(isTxHash('0x12')).toBe(false)
 })
 test('app.ts never puts tokens in URLs and never uses document.write/eval', () => {

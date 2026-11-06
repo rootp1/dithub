@@ -258,10 +258,11 @@ describe('verify helpers and constants', () => {
     expect(NETWORKS.sepolia.attestations).toBe(d.contracts.DeployAttestations.address)
     expect(NETWORKS.sepolia.chainId).toBe(d.chainId)
   })
-  test('DIT_NETWORK picks the chain; Base mainnet by default; typos throw', () => {
+  test('DIT_NETWORK picks the chain; Ethereum Sepolia by default; typos throw', () => {
     const prev = process.env.DIT_NETWORK
     try {
-      delete process.env.DIT_NETWORK; expect(l1().chainId).toBe(8453)
+      delete process.env.DIT_NETWORK; expect(l1().chainId).toBe(11155111)
+      process.env.DIT_NETWORK = 'base'; expect(l1().chainId).toBe(8453)
       process.env.DIT_NETWORK = 'sepolia'; expect(l1().chainId).toBe(11155111)
       process.env.DIT_NETWORK = 'basee'; expect(() => l1()).toThrow(/unknown network/)
     } finally { if (prev === undefined) delete process.env.DIT_NETWORK; else process.env.DIT_NETWORK = prev }

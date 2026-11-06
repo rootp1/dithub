@@ -6,7 +6,7 @@ import { base, sepolia } from 'viem/chains'
 import { networkOf } from '../deployments/networks.ts'
 
 export const ROOT = resolve(import.meta.dir, '..')
-/** L1_NETWORK (base | sepolia) or L1_CHAIN_ID picks the chain; Base mainnet when neither is set. */
+/** L1_NETWORK or L1_CHAIN_ID picks the chain; Ethereum Sepolia when neither is set. */
 export const NETWORK = networkOf(process.env.L1_NETWORK ?? process.env.L1_CHAIN_ID)
 export const CHAIN = NETWORK.name === 'base' ? base : sepolia
 export const RPC_URL = process.env.L1_RPC_URL || (NETWORK.name === 'sepolia' && process.env.SEPOLIA_RPC_URL) || NETWORK.rpcUrl

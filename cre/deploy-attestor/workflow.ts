@@ -66,7 +66,9 @@ const fetchAndHashInner = (sender: HTTPSendRequester, siteUrl: string): Observat
   const bj = JSON.parse(Buffer.from(get('build.json')).toString('utf-8'))
   if (!bj || typeof bj.files !== 'object' || bj.files === null) throw new Error('build.json has no files map')
   const claimed: Record<string, string> = {}
-  for (const [k, v] of Object.entries(bj.files)) claimed[k] = String(v).toLowerCase()
+  for (const [k, v] of Object.entries(bj.files).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
+    claimed[k] = String(v).toLowerCase()
+  }
   const listed = Object.keys(claimed).sort()
   if (listed.length > MAX_FILES) throw new Error('build.json lists too many files')
   const computed: Record<string, string> = {}

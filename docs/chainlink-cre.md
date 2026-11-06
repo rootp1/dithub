@@ -36,9 +36,9 @@ Code lives in `cre/` (deliberately not under `apps/` or `packages/`, so it is no
 
 | Item | Address |
 | --- | --- |
-| DeployRegistry | `0x9caa2fEB7880Bb81b7A3C3324c22C3293c65655e` |
-| DeployAttestations | `0x458d41E371141655c5b04618875aF22F83809BC9` |
-| Forwarder (MockKeystoneForwarder, for simulation) | `0x15fC6ae953E024d975e77382eEeC56A9101f9F88` |
+| DeployRegistry | `0x654079488907fcC1279f7215a851Cb04c8241232` |
+| DeployAttestations | `0x0366e20a4143C8E45B9c65eCB5B03CD6FC367683` |
+| Forwarder (KeystoneForwarder, deployed workflows) | `0xF8344CFd5c43616a4366C34E3EEE75af79a74482` |
 
 Note: when forwarding through the mock forwarder, give the transaction at least ~500k gas (workflow `gasLimit` is 500000);
 with the default estimate the forwarder swallowed an out-of-gas in `onReport` and recorded a failed delivery.
