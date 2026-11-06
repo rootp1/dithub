@@ -1,0 +1,1 @@
+SQLite migrations applied after `../schema.sql`, in name order: `NNNN_name.sql`, each run once inside a transaction and recorded in `schema_migrations`. Do not edit a file once it has shipped; add a new one.

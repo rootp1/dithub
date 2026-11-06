@@ -13,8 +13,8 @@ push to main, ci green ──> deploy.yml
     5. scripts/publish-release.ts   -> DeployRegistry.publish(commit, bundleHash, url) on Sepolia (idempotent)
     6. POST CRE_TRIGGER_URL (skipped when the secret is absent) -> Chainlink CRE deploy-attestor
     7. scripts/verify-site.ts       -> PASS/FAIL table, exit 1 on mismatch
-worker (always running) ──> polls ReleasePublished / Attested logs ──> Postgres `deployments` ──> Arkiv (dheet-activity-v1 kinds deploy/attest)
-api    GET /api/deployments  ──> reads the history back from Arkiv (Postgres only if Arkiv is unreachable)
+worker (always running) ──> polls ReleasePublished / Attested logs ──> SQLite `deployments` ──> Arkiv (dheet-activity-v1 kinds deploy/attest)
+api    GET /api/deployments  ──> reads the history back from Arkiv (local SQLite only if Arkiv is unreachable)
 ```
 
 The bundle hash is published from the `build.json` the **server actually serves** (`BUILD_FROM_SITE=1`), because the Docker build is the artefact users receive.
@@ -44,7 +44,7 @@ import { deployments } from './deployments.ts'
 app.route('/api', deployments)      // GET /api/deployments, GET /api/deployments/latest
 ```
 
-The worker already starts the mirror (`startDeploymentMirror` in `apps/worker/src/index.ts`). Run migrations (`0006_deployments.sql`) before the new worker/API start;
+The worker already starts the mirror (`startDeploymentMirror` in `apps/worker/src/index.ts`). Run migrations (`bun apps/api/src/migrate.ts`; the `deployments` table is in `packages/db/schema.sql`) before the new worker/API start;
 the prod `api` container does this on boot (`bun apps/api/src/migrate.ts`).
 
 ## Mirror configuration

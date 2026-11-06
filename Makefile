@@ -1,12 +1,16 @@
-.PHONY: dev down migrate psql status
+.PHONY: dev down migrate db stamp status
+DATABASE_PATH ?= .data/dithub.sqlite
 dev:
 	docker compose -f infra/docker-compose.yml up -d --wait
 	$(MAKE) migrate
 down:
 	docker compose -f infra/docker-compose.yml down
 migrate:
-	docker compose -f infra/docker-compose.yml exec -T postgres sh -c 'psql -v ON_ERROR_STOP=1 -U $$POSTGRES_USER -d $$POSTGRES_DB' < packages/db/migrations/0001_init.sql
-psql:
-	docker compose -f infra/docker-compose.yml exec postgres sh -c 'psql -U $$POSTGRES_USER -d $$POSTGRES_DB'
+	DATABASE_PATH=$(DATABASE_PATH) bun apps/api/src/migrate.ts
+db:
+	sqlite3 $(DATABASE_PATH)
+# Buys a postage batch on the dev Bee (free in dev mode); put the printed batchID in .env as BEE_POSTAGE_BATCH_ID.
+stamp:
+	curl -fsS -X POST http://127.0.0.1:1633/stamps/100000000/20
 status:
 	docker compose -f infra/docker-compose.yml ps

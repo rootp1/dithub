@@ -1,5 +1,5 @@
 import { Hono, type Context } from 'hono'
-import { sql } from './db.ts'
+import { sql, json as toJson, parseJson, bool, now } from './db.ts'
 import { authenticate, type AuthUser } from './auth.ts'
 import { can, findRepo, type RepoRow } from './perm.ts'
 
@@ -23,15 +23,15 @@ export async function allocateIssue(tx: Tx, a: { repoId: number; authorId: numbe
   const [n] = await tx`INSERT INTO repo_counters (repo_id, last_number) VALUES (${a.repoId}, 1)
     ON CONFLICT (repo_id) DO UPDATE SET last_number = repo_counters.last_number + 1 RETURNING last_number`
   const [row] = await tx`INSERT INTO issues (repo_id, number, author_id, title, body, source)
-    VALUES (${a.repoId}, ${n.last_number}, ${a.authorId}, ${a.title}, ${a.body}, ${a.source === undefined ? null : JSON.stringify(a.source)}::text::jsonb) RETURNING id`
+    VALUES (${a.repoId}, ${n.last_number}, ${a.authorId}, ${a.title}, ${a.body}, ${a.source === undefined || a.source === null ? null : toJson(a.source)}) RETURNING id`
   return { id: Number(row.id), number: Number(n.last_number) }
 }
 
 export async function issueEvent(tx: Tx | typeof sql, issueId: number, actorId: number | null, event: string, payload: Record<string, unknown> = {}) {
-  await tx`INSERT INTO issue_events (issue_id, actor_id, event, payload) VALUES (${issueId}, ${actorId}, ${event}, ${JSON.stringify(payload)}::text::jsonb)`
+  await tx`INSERT INTO issue_events (issue_id, actor_id, event, payload) VALUES (${issueId}, ${actorId}, ${event}, ${toJson(payload)})`
 }
 export async function activity(tx: Tx | typeof sql, repoId: number, actorId: number | null, kind: string, payload: Record<string, unknown>) {
-  await tx`INSERT INTO activity (repo_id, actor_id, kind, payload) VALUES (${repoId}, ${actorId}, ${kind}, ${JSON.stringify(payload)}::text::jsonb)`
+  await tx`INSERT INTO activity (repo_id, actor_id, kind, payload) VALUES (${repoId}, ${actorId}, ${kind}, ${toJson(payload)})`
 }
 
 const str = (v: unknown, max: number) => (typeof v === 'string' && v.trim().length > 0 && v.length <= max ? v : null)
@@ -52,9 +52,9 @@ export async function issueView(i: Record<string, any>) {
   const labels = await sql`SELECT l.name, l.color, l.description FROM issue_labels il JOIN labels l ON l.id = il.label_id WHERE il.issue_id = ${i.id} ORDER BY l.name`
   const assignees = await sql`SELECT u.login FROM issue_assignees a JOIN users u ON u.id = a.user_id WHERE a.issue_id = ${i.id} ORDER BY u.login`
   return {
-    number: Number(i.number), title: i.title, body: i.body, state: i.state, stateReason: i.state_reason, locked: i.locked,
+    number: Number(i.number), title: i.title, body: i.body, state: i.state, stateReason: i.state_reason, locked: bool(i.locked),
     author: i.author_login ?? null, isPullRequest: !!i.is_pr, comments: Number(i.comments_count), labels,
-    assignees: assignees.map((a: { login: string }) => a.login), source: i.source ?? null,
+    assignees: assignees.map((a: { login: string }) => a.login), source: parseJson(i.source) ?? null,
     createdAt: i.created_at, updatedAt: i.updated_at, closedAt: i.closed_at,
   }
 }
@@ -96,15 +96,18 @@ issues.get('/repos/:owner/:repo/issues', async (c) => {
   const labels = (c.req.queries('label') ?? []).flatMap((l) => l.split(',')).filter(Boolean)
   const assignee = c.req.query('assignee') ?? null, author = c.req.query('author') ?? null, q = c.req.query('q')?.slice(0, 200) ?? null
   const perPage = Math.min(100, Math.max(1, num(c.req.query('per_page')) ?? 30)), page = Math.max(1, num(c.req.query('page')) ?? 1)
+  // Full-text search became LIKE: every word of q must appear in the title or body (ASCII case-insensitive).
+  const words = (q ?? '').split(/\s+/).filter(Boolean).slice(0, 20).map((w) => `%${w.replace(/[\\%_]/g, '\\$&')}%`)
   const where = sql`i.repo_id = ${repo.id} AND p.issue_id IS NULL AND (${state} = 'all' OR i.state = ${state})
-    AND (${assignee}::text IS NULL OR EXISTS (SELECT 1 FROM issue_assignees a JOIN users u ON u.id = a.user_id WHERE a.issue_id = i.id AND u.login = ${assignee}))
-    AND (${author}::text IS NULL OR au.login = ${author})
-    AND (${q}::text IS NULL OR i.search @@ plainto_tsquery('english', ${q}))
-    AND (${labels.length}::int = 0 OR (SELECT count(DISTINCT l.name) FROM issue_labels il JOIN labels l ON l.id = il.label_id WHERE il.issue_id = i.id AND l.name = ANY(${labels}::text[])) = ${new Set(labels).size}::int)`
-  const [t] = await sql`SELECT count(*)::int AS n FROM issues i LEFT JOIN pull_requests p ON p.issue_id = i.id LEFT JOIN users au ON au.id = i.author_id WHERE ${where}`
+    AND (${assignee} IS NULL OR EXISTS (SELECT 1 FROM issue_assignees a JOIN users u ON u.id = a.user_id WHERE a.issue_id = i.id AND u.login = ${assignee}))
+    AND (${author} IS NULL OR au.login = ${author})
+    AND NOT EXISTS (SELECT 1 FROM json_each(${toJson(words)}) w WHERE NOT (i.title LIKE w.value ESCAPE '\\' OR coalesce(i.body, '') LIKE w.value ESCAPE '\\'))
+    AND (${labels.length} = 0 OR (SELECT count(DISTINCT l.name) FROM issue_labels il JOIN labels l ON l.id = il.label_id WHERE il.issue_id = i.id
+      AND l.name IN (SELECT value FROM json_each(${toJson(labels)}))) = ${new Set(labels).size})`
+  const [t] = await sql`SELECT count(*) AS n FROM issues i LEFT JOIN pull_requests p ON p.issue_id = i.id LEFT JOIN users au ON au.id = i.author_id WHERE ${where}`
   const rows = await sql`SELECT i.*, au.login AS author_login, false AS is_pr FROM issues i LEFT JOIN pull_requests p ON p.issue_id = i.id LEFT JOIN users au ON au.id = i.author_id
     WHERE ${where} ORDER BY i.updated_at DESC, i.id DESC LIMIT ${perPage} OFFSET ${(page - 1) * perPage}`
-  return c.json({ total: t.n, page, perPage, issues: await Promise.all(rows.map((i: Record<string, any>) => issueView(i))) })
+  return c.json({ total: Number(t.n), page, perPage, issues: await Promise.all(rows.map((i: Record<string, any>) => issueView(i))) })
 })
 
 issues.get('/repos/:owner/:repo/issues/:number{[0-9]+}', async (c) => {
@@ -117,7 +120,7 @@ issues.get('/repos/:owner/:repo/issues/:number{[0-9]+}/events', async (c) => {
   const r = await repoCtx(c); if (isResp(r)) return r
   const i = await findIssue(r.repo, Number(c.req.param('number'))); if (!i) return c.json({ error: 'not found' }, 404)
   const rows = await sql`SELECT e.id, e.event, e.payload, e.created_at, u.login AS actor FROM issue_events e LEFT JOIN users u ON u.id = e.actor_id WHERE e.issue_id = ${i.id} ORDER BY e.id`
-  return c.json({ events: rows.map((e: Record<string, any>) => ({ id: Number(e.id), event: e.event, actor: e.actor, payload: e.payload, createdAt: e.created_at })) })
+  return c.json({ events: rows.map((e: Record<string, any>) => ({ id: Number(e.id), event: e.event, actor: e.actor, payload: parseJson(e.payload), createdAt: e.created_at })) })
 })
 
 issues.patch('/repos/:owner/:repo/issues/:number{[0-9]+}', async (c) => {
@@ -140,7 +143,7 @@ issues.patch('/repos/:owner/:repo/issues/:number{[0-9]+}', async (c) => {
   const reason = state === 'closed' ? (b.stateReason ?? 'completed') : state !== i.state ? 'reopened' : i.state_reason
   await sql.begin(async (tx) => {
     await tx`UPDATE issues SET title = ${title}, body = ${body}, state = ${state}, state_reason = ${reason},
-      closed_at = ${state === 'closed' ? (i.state === 'closed' ? i.closed_at : new Date()) : null}, closed_by = ${state === 'closed' ? user!.id : null}, updated_at = now() WHERE id = ${i.id}`
+      closed_at = ${state === 'closed' ? (i.state === 'closed' ? i.closed_at : now()) : null}, closed_by = ${state === 'closed' ? user!.id : null}, updated_at = ${now()} WHERE id = ${i.id}`
     if (title !== i.title) await issueEvent(tx, Number(i.id), user!.id, 'renamed', { from: i.title, to: title })
     if (state !== i.state) { await issueEvent(tx, Number(i.id), user!.id, state === 'closed' ? 'closed' : 'reopened', { reason }); await activity(tx, Number(repo.id), user!.id, `issue.${state === 'closed' ? 'closed' : 'reopened'}`, { number: Number(i.number) }) }
   })
@@ -160,12 +163,12 @@ issues.post('/repos/:owner/:repo/issues/:number{[0-9]+}/comments', async (c) => 
   const r = await repoCtx(c, 'read', { auth: true }); if (isResp(r)) return r
   const { user, repo } = r
   const i = await findIssue(repo, Number(c.req.param('number'))); if (!i) return c.json({ error: 'not found' }, 404)
-  if (i.locked && !(await can(user, repo, 'triage'))) return c.json({ error: 'issue is locked' }, 403)
+  if (bool(i.locked) && !(await can(user, repo, 'triage'))) return c.json({ error: 'issue is locked' }, 403)
   const b = await json<{ body?: string }>(c)
   const body = str(b?.body, 65_536); if (!body) return c.json({ error: 'body is required' }, 400)
   const m = await sql.begin(async (tx) => {
     const [row] = await tx`INSERT INTO comments (repo_id, issue_id, author_id, body) VALUES (${repo.id}, ${i.id}, ${user!.id}, ${body}) RETURNING id, created_at`
-    await tx`UPDATE issues SET comments_count = comments_count + 1, updated_at = now() WHERE id = ${i.id}`
+    await tx`UPDATE issues SET comments_count = comments_count + 1, updated_at = ${now()} WHERE id = ${i.id}`
     await activity(tx, Number(repo.id), user!.id, 'issue.commented', { number: Number(i.number), commentId: Number(row.id) })
     return row
   })
@@ -181,7 +184,7 @@ issues.patch('/repos/:owner/:repo/comments/:id{[0-9]+}', async (c) => {
   const m = await findComment(r.repo, Number(c.req.param('id'))); if (!m) return c.json({ error: 'not found' }, 404)
   if (Number(m.author_id) !== r.user!.id) return c.json({ error: 'only the author can edit a comment' }, 403)
   const body = str((await json<{ body?: string }>(c))?.body, 65_536); if (!body) return c.json({ error: 'body is required' }, 400)
-  await sql`UPDATE comments SET body = ${body}, updated_at = now() WHERE id = ${m.id}`
+  await sql`UPDATE comments SET body = ${body}, updated_at = ${now()} WHERE id = ${m.id}`
   return c.json({ ok: true })
 })
 issues.delete('/repos/:owner/:repo/comments/:id{[0-9]+}', async (c) => {
@@ -189,8 +192,8 @@ issues.delete('/repos/:owner/:repo/comments/:id{[0-9]+}', async (c) => {
   const m = await findComment(r.repo, Number(c.req.param('id'))); if (!m) return c.json({ error: 'not found' }, 404)
   if (Number(m.author_id) !== r.user!.id && !(await can(r.user, r.repo, 'triage'))) return c.json({ error: 'only the author or triage+ can delete a comment' }, 403)
   await sql.begin(async (tx) => {
-    await tx`UPDATE comments SET deleted_at = now() WHERE id = ${m.id}`
-    await tx`UPDATE issues SET comments_count = GREATEST(comments_count - 1, 0) WHERE id = ${m.issue_id}`
+    await tx`UPDATE comments SET deleted_at = ${now()} WHERE id = ${m.id}`
+    await tx`UPDATE issues SET comments_count = max(comments_count - 1, 0) WHERE id = ${m.issue_id}`
   })
   return c.json({ ok: true })
 })
@@ -237,7 +240,7 @@ issues.post('/repos/:owner/:repo/issues/:number{[0-9]+}/labels', async (c) => {
       const ins = await tx`INSERT INTO issue_labels (issue_id, label_id) VALUES (${i.id}, ${l.id}) ON CONFLICT DO NOTHING RETURNING label_id`
       if (ins.length) await issueEvent(tx, Number(i.id), r.user!.id, 'labeled', { label: name })
     }
-    await tx`UPDATE issues SET updated_at = now() WHERE id = ${i.id}`
+    await tx`UPDATE issues SET updated_at = ${now()} WHERE id = ${i.id}`
     return null
   })
   if (res) return c.json({ error: res }, 400)

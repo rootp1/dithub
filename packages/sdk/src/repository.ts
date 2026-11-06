@@ -123,6 +123,53 @@ export function reconstructBundle(store: LocalNetworkStore, manifest: Repository
   return bundle
 }
 
+/**
+ * Fill a local store from a pack (git bundle) fetched from Swarm: the bundle chunks, then every object chunk the manifest lists,
+ * re-derived by unbundling. Each chunk is checked against the manifest descriptors. Returns the chunk hashes still missing.
+ */
+export function restoreChunksFromBundle(
+  store: LocalNetworkStore,
+  manifest: RepositoryManifest,
+  bundle: Uint8Array,
+): { restored: number; missing: Hex[] } {
+  if (bundleHash(bundle) !== manifest.bundleHash) throw new Error('Swarm pack does not match the manifest bundle hash')
+  const parts = chunkBytes(bundle)
+  if (parts.descriptors.length !== manifest.bundleChunks.length
+    || parts.descriptors.some((descriptor, index) => descriptor.hash !== manifest.bundleChunks[index]?.hash)) {
+    throw new Error('Swarm pack chunks do not match the manifest')
+  }
+  const restoredHashes = new Set<string>()
+  for (const chunk of parts.chunks) restoredHashes.add(store.putChunk(chunk).hash)
+
+  const wanted = new Map(manifest.objects.map((object) => [object.dithubOid, object]))
+  if (wanted.size > 0) {
+    const directory = mkdtempSync(join(tmpdir(), 'dithub-swarm-'))
+    const bundlePath = join(directory, 'pack.bundle')
+    const barePath = join(directory, 'repository.git')
+    try {
+      writeFileSync(bundlePath, bundle)
+      run('git', ['clone', '--mirror', '--quiet', bundlePath, barePath])
+      for (const exported of exportReachableObjects(barePath)) {
+        const expected = wanted.get(exported.descriptor.dithubOid)
+        if (!expected) continue
+        if (expected.chunks.length !== exported.chunks.length) throw new Error(`${expected.gitOidHex}: chunk layout mismatch`)
+        for (const [index, bytes] of exported.chunks.entries()) {
+          const stored = store.putChunk(bytes)
+          if (stored.hash !== expected.chunks[index]?.hash) throw new Error(`${expected.gitOidHex}: object chunk mismatch`)
+          restoredHashes.add(stored.hash)
+        }
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true })
+    }
+  }
+  const all = new Set<Hex>([
+    ...manifest.bundleChunks.map((chunk) => chunk.hash),
+    ...manifest.objects.flatMap((object) => object.chunks.map((chunk) => chunk.hash)),
+  ])
+  return { restored: restoredHashes.size, missing: [...all].filter((hash) => !restoredHashes.has(hash)) }
+}
+
 export function cloneRepository(
   nameOrId: string,
   destination: string,

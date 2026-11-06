@@ -23,7 +23,7 @@ import { printJson } from './ui.ts'
 type Handler = (argv: string[]) => Promise<number> | number
 export const COMMANDS: Record<string, Handler> = {
   login, logout, whoami, auth: authCmd, clone, init, repo: repoCmd, protect, issue: issueCmd, pr: prCmd, org: orgCmd,
-  recover: (argv) => import('./cmd/recover.ts').then((m) => m.recoverCmd(argv)), session: sessionCmd, task: taskCmd, verify: verifyCmd, name: nameCmd, deployments: deploymentsCmd, label: labelCmd, token: tokenCmd, log: logCmd, credential, completion,
+  recover: (argv) => import('./cmd/recover.ts').then((m) => m.recoverCmd(argv)), session: sessionCmd, task: taskCmd, keys: (argv) => import('./cmd/keys.ts').then((m) => m.keysCmd(argv)), verify: verifyCmd, name: nameCmd, deployments: deploymentsCmd, label: labelCmd, token: tokenCmd, log: logCmd, credential, completion,
   version: (argv) => { if (argv.includes('--json')) printJson({ version: VERSION }); else console.log(`dit ${VERSION}`); return 0 },
 }
 

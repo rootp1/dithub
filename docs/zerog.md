@@ -37,7 +37,7 @@ Sources:
   Always sends the private trust header. Throws `ZeroGError` (message scrubbed of the key) when 0G fails; it never returns invented text.
 - `apps/api/src/assistant-core.ts` - pure logic: `gitSource`, `retrieveContext`, `guardQuestion`, `buildMessages`, `redactOutput`, `runAssistant` (no DB/HTTP; unit-testable with an injected `chat`).
 - `apps/api/src/assistant.ts` - Hono sub-app `assistant` (routes, DB persistence, rate limit, session events).
-- `packages/db/migrations/0005_assistant.sql` - `assistant_calls` (request ID, sha256 prompt hash, tokens, latency, refused flag, capped answer; no prompts, no key).
+- `assistant_calls` in `packages/db/schema.sql` (was Postgres migration 0005) (request ID, sha256 prompt hash, tokens, latency, refused flag, capped answer; no prompts, no key).
 - `scripts/zg-smoke.ts` (live calls), `scripts/e2e-assistant.ts` (+ `scripts/e2e-sessions-stub.ts`).
 
 ## Endpoints (all require `authenticate`)
@@ -74,7 +74,7 @@ Apply migration `0005_assistant.sql` (`bun apps/api/src/migrate.ts`). It require
 ```sh
 set -a; . ./.env.app; . ./.env; set +a
 bun scripts/zg-smoke.ts        # two live 0G calls, prints request IDs
-bun scripts/e2e-assistant.ts   # scope tests + live HTTP flow on a scratch Postgres database (dheet_assistant_e2e, dropped afterwards)
+bun scripts/e2e-assistant.ts   # scope tests + live HTTP flow on a scratch SQLite file in a temp dir (deleted afterwards)
 ```
 
 Independent proof for any stored request: take `x_0g_trace.provider` and the chat id and run `broker.inference.processResponse(provider, chatID)` from `@0gfoundation/0g-compute-ts-sdk` (see the verifiable-execution page above).

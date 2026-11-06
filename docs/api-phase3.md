@@ -1,6 +1,6 @@
 # Phase 3 API: issues, pull requests, task-scoped sessions
 
-All paths are under the API origin. Auth is the same as elsewhere (session cookie or `Authorization: Bearer <PAT>`). Errors are `{ "error": string }`. A repository the caller cannot read answers `404`. Migration: `packages/db/migrations/0004_phase3.sql`. Verified by `scripts/e2e-phase3.ts` (116 checks).
+All paths are under the API origin. Auth is the same as elsewhere (session cookie or `Authorization: Bearer <PAT>`). Errors are `{ "error": string }`. A repository the caller cannot read answers `404`. Schema: `packages/db/schema.sql` (originally Postgres migration 0004, now in `packages/db/postgres-legacy/`). The e2e script reads the API's SQLite file via `DATABASE_PATH`. Verified by `scripts/e2e-phase3.ts` (116 checks).
 
 Notation: `R = /api/repos/:owner/:repo`. Permission levels: read < triage < write < maintain < admin (see `perm.ts`).
 
@@ -103,7 +103,7 @@ Create, end and revoke call `recordRbac` (`session.create`, `session.end`, `sess
 
 ## VS Code flow (scope suggestions, task inbox, repo picker, files proposals)
 
-Migration `packages/db/migrations/0010_vscode_flow.sql` (`scope_suggestions`). Code: `apps/api/src/suggest-scope.ts`, `apps/api/src/tasks.ts`, `apps/api/src/sessions.ts` (proposals). Unit tests: `bun test apps/api/test`. End to end (live 0G): `BASE_URL=http://localhost:3400 bun scripts/e2e-vscode-flow.ts` with `DHEET_SEAT_KEY` (maintainer) and `DHEET_STRANGER_KEY` (developer) in the environment.
+Table `scope_suggestions` in `packages/db/schema.sql` (originally migration 0010). Code: `apps/api/src/suggest-scope.ts`, `apps/api/src/tasks.ts`, `apps/api/src/sessions.ts` (proposals). Unit tests: `bun test apps/api/test`. End to end (live 0G): `BASE_URL=http://localhost:3400 bun scripts/e2e-vscode-flow.ts` (set `DATABASE_PATH` to the API's SQLite file to also check the audit rows) with `DHEET_SEAT_KEY` (maintainer) and `DHEET_STRANGER_KEY` (developer) in the environment.
 
 Flow: the maintainer picks an issue, asks 0G for the relevant paths (`suggest-scope`), reviews them, assigns the issue (`POST R/issues/:n/assignees`) and creates a contractor session with the approved paths (`POST R/sessions`). The developer never gets repository access: `GET /api/tasks` lists their sessions, reads go through `R/tree` and `R/blob` with `x-dheet-session`, the assistant through `/api/sessions/:id/assistant/*`, and edits come back as a PR via `POST /api/sessions/:id/proposals` (files variant).
 

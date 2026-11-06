@@ -25,7 +25,15 @@ jobs:
       - run: bun run build
       - name: Build production web bundle (deterministic build.json; the web verify tests compare against it)
         run: GIT_COMMIT=${{ github.sha }} bun apps/web/build.ts
-      - run: bun test packages/sdk/test packages/e2e/local-flow.test.ts packages/dit apps/web/src apps/api/test packages/vscode
+      - name: Apply migrations to a fresh SQLite file (twice; the second run must be a no-op)
+        run: |
+          export DATABASE_PATH="$RUNNER_TEMP/ci.sqlite"
+          bun apps/api/src/migrate.ts
+          bun apps/api/src/migrate.ts
+          bun -e "import { openDb } from './packages/db/src/index.ts'; const db = openDb(); const [r] = await db\`SELECT count(*) AS n FROM sqlite_master WHERE name = 'users'\`; if (!Number(r.n)) process.exit(1)"
+      - run: bun test packages/sdk/test packages/db/test packages/e2e/local-flow.test.ts packages/dit apps/web/src packages/vscode scripts/pg-to-sqlite.test.ts
+      - name: API and worker tests (each file gets its own process and temp SQLite file)
+        run: bun test --isolate apps/api apps/worker
 
   contracts:
     runs-on: ubuntu-latest

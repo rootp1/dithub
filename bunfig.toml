@@ -1,0 +1,4 @@
+[test]
+# Every test process gets a throwaway DATABASE_PATH / REPOS_DIR before any module reads config.ts,
+# so API route tests can share one process and never touch the real .data database.
+preload = ["./apps/api/src/sqlite-testenv.ts"]

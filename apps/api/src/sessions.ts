@@ -2,7 +2,7 @@ import { Hono, type Context } from 'hono'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { sql, toHex } from './db.ts'
+import { sql, toHex, json, parseJson, now, newId } from './db.ts'
 import { authenticate, type AuthUser } from './auth.ts'
 import { can, findRepo, type RepoRow } from './perm.ts'
 import { recordRbac } from './rbac.ts'
@@ -15,6 +15,8 @@ import { issueEvent } from './issues.ts'
 export const sessions = new Hono()
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+/** Session ids are lowercase TEXT in SQLite (Postgres compared uuids case-insensitively). */
+const sid = (id: string) => id.toLowerCase()
 const LOGIN = /^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?$/
 export type Role = 'contractor' | 'employee' | 'maintainer'
 
@@ -73,15 +75,15 @@ export async function loadSessionForUser(sessionId: string, userId: number): Pro
   if (!UUID.test(sessionId)) return null
   const [s] = await sql`SELECT s.id, s.repo_id, s.issue_id, s.user_id, s.role, s.allowed_paths, s.ref, s.expires_at, i.number, r.dheet_repo_id
     FROM task_sessions s JOIN issues i ON i.id = s.issue_id JOIN repos r ON r.id = s.repo_id
-    WHERE s.id = ${sessionId}::uuid AND s.user_id = ${userId} AND s.status = 'active' AND s.expires_at > now() AND r.deleted_at IS NULL`
+    WHERE s.id = ${sid(sessionId)} AND s.user_id = ${userId} AND s.status = 'active' AND s.expires_at > ${now()} AND r.deleted_at IS NULL`
   if (!s) return null
   return { id: s.id, repoId: Number(s.repo_id), repoIdHex: toHex(s.dheet_repo_id)!, issueId: Number(s.issue_id), issueNumber: Number(s.number), userId: Number(s.user_id),
-    role: s.role, allowedPaths: s.allowed_paths, ref: s.ref, expiresAt: new Date(s.expires_at) }
+    role: s.role, allowedPaths: parseJson<string[]>(s.allowed_paths) ?? [], ref: s.ref, expiresAt: new Date(s.expires_at) }
 }
 
 export async function logSessionEvent(sessionId: string, actorId: number | null, kind: string, detail: Record<string, unknown>): Promise<void> {
   if (!UUID.test(sessionId)) return
-  await sql`INSERT INTO session_events (session_id, actor_id, kind, detail) VALUES (${sessionId}::uuid, ${actorId}, ${kind}, ${JSON.stringify(detail)}::text::jsonb)`
+  await sql`INSERT INTO session_events (session_id, actor_id, kind, detail) VALUES (${sid(sessionId)}, ${actorId}, ${kind}, ${json(detail)})`
 }
 
 export interface Access { user: AuthUser | null; scope: SessionScope | null; ok: boolean; status: 401 | 403 | 404; error?: string }
@@ -89,14 +91,14 @@ export interface Access { user: AuthUser | null; scope: SessionScope | null; ok:
 /** Decide how the caller may use `repo`. A session (header `x-dheet-session` or `?session=`) limits the caller to that session's scope and, for contractor/employee, is the ONLY thing that grants access. */
 export async function resolveAccess(c: Context, repo: RepoRow, need: 'read' | 'write' = 'read'): Promise<Access> {
   const user = await authenticate(c)
-  const sid = c.req.header('x-dheet-session') ?? c.req.query('session')
-  if (!sid) return { user, scope: null, ok: await can(user, repo, need), status: user ? 404 : 401 }
+  const sessionId = c.req.header('x-dheet-session') ?? c.req.query('session')
+  if (!sessionId) return { user, scope: null, ok: await can(user, repo, need), status: user ? 404 : 401 }
   if (!user) return { user, scope: null, ok: false, status: 401, error: 'sign in first' }
-  const scope = await loadSessionForUser(sid, user.id)
+  const scope = await loadSessionForUser(sessionId, user.id)
   if (!scope || scope.repoId !== Number(repo.id)) {
-    if (UUID.test(sid)) {
-      const [own] = await sql`SELECT 1 FROM task_sessions WHERE id = ${sid}::uuid AND user_id = ${user.id}`
-      if (own) await logSessionEvent(sid, user.id, 'denied', { reason: scope ? 'wrong repository' : 'session not active' })
+    if (UUID.test(sessionId)) {
+      const [own] = await sql`SELECT 1 FROM task_sessions WHERE id = ${sid(sessionId)} AND user_id = ${user.id}`
+      if (own) await logSessionEvent(sessionId, user.id, 'denied', { reason: scope ? 'wrong repository' : 'session not active' })
     }
     return { user, scope: null, ok: false, status: 403, error: 'invalid, expired or revoked session' }
   }
@@ -156,14 +158,14 @@ export async function scopedCommits(scope: SessionScope) {
 // ---------- helpers ----------
 async function sessionRow(id: string) {
   if (!UUID.test(id)) return null
-  await sql`UPDATE task_sessions SET status = 'expired', ended_at = expires_at WHERE id = ${id}::uuid AND status = 'active' AND expires_at <= now()`
+  await sql`UPDATE task_sessions SET status = 'expired', ended_at = expires_at WHERE id = ${sid(id)} AND status = 'active' AND expires_at <= ${now()}`
   const [s] = await sql`SELECT s.*, i.number AS issue_number, d.login AS user_login, m.login AS created_by_login FROM task_sessions s
-    JOIN issues i ON i.id = s.issue_id JOIN users d ON d.id = s.user_id JOIN users m ON m.id = s.created_by WHERE s.id = ${id}::uuid`
+    JOIN issues i ON i.id = s.issue_id JOIN users d ON d.id = s.user_id JOIN users m ON m.id = s.created_by WHERE s.id = ${sid(id)}`
   return s as Record<string, any> | undefined
 }
 const view = (s: Record<string, any>) => ({
   id: s.id, repoId: Number(s.repo_id), issueNumber: Number(s.issue_number), user: s.user_login, createdBy: s.created_by_login, role: s.role,
-  allowedPaths: s.allowed_paths, ref: s.ref, status: s.status, expiresAt: s.expires_at, createdAt: s.created_at, endedAt: s.ended_at, endReason: s.end_reason,
+  allowedPaths: parseJson<string[]>(s.allowed_paths) ?? [], ref: s.ref, status: s.status, expiresAt: s.expires_at, createdAt: s.created_at, endedAt: s.ended_at, endReason: s.end_reason,
 })
 async function repoById(id: number): Promise<RepoRow | null> {
   const [r] = await sql`SELECT r.*, COALESCE(u.login, o.login) AS owner_login FROM repos r LEFT JOIN users u ON r.owner_kind='user' AND u.id=r.owner_id LEFT JOIN orgs o ON r.owner_kind='org' AND o.id=r.owner_id WHERE r.id = ${id} AND r.deleted_at IS NULL`
@@ -201,16 +203,16 @@ sessions.post('/repos/:owner/:repo/sessions', async (c) => {
   const [issue] = await sql`SELECT i.id, i.number FROM issues i LEFT JOIN pull_requests p ON p.issue_id = i.id WHERE i.repo_id = ${repo.id} AND i.number = ${b.issueNumber} AND p.issue_id IS NULL`
   if (!issue) return c.json({ error: 'issue not found' }, 404)
   if ((await gitx(repoPath(toHex(repo.dheet_repo_id)!), ['rev-parse', '--verify', '--quiet', `${ref}^{commit}`])).code !== 0) return c.json({ error: `ref ${ref} does not exist (push something first)` }, 422)
-  await sql`UPDATE task_sessions SET status = 'expired', ended_at = expires_at WHERE user_id = ${target.id} AND issue_id = ${issue.id} AND status = 'active' AND expires_at <= now()`
+  await sql`UPDATE task_sessions SET status = 'expired', ended_at = expires_at WHERE user_id = ${target.id} AND issue_id = ${issue.id} AND status = 'active' AND expires_at <= ${now()}`
   const res = await sql.begin(async (tx) => {
-    const ins = await tx`INSERT INTO task_sessions (repo_id, issue_id, user_id, created_by, role, allowed_paths, ref, expires_at)
-      VALUES (${repo.id}, ${issue.id}, ${target.id}, ${user.id}, ${role}, ${paths}, ${ref}, now() + (${ttl} * interval '1 minute'))
+    const ins = await tx`INSERT INTO task_sessions (id, repo_id, issue_id, user_id, created_by, role, allowed_paths, ref, expires_at)
+      VALUES (${newId()}, ${repo.id}, ${issue.id}, ${target.id}, ${user.id}, ${role}, ${json(paths)}, ${ref}, ${now(ttl * 60_000)})
       ON CONFLICT DO NOTHING RETURNING id`
     if (!ins.length) return null
     const id = ins[0].id as string
     await tx`INSERT INTO issue_assignees (issue_id, user_id) VALUES (${issue.id}, ${target.id}) ON CONFLICT DO NOTHING`
     await issueEvent(tx, Number(issue.id), user.id, 'session_started', { sessionId: id })
-    await tx`INSERT INTO session_events (session_id, actor_id, kind, detail) VALUES (${id}::uuid, ${user.id}, 'create', ${JSON.stringify({ role, paths: paths.length, ttlMinutes: ttl })}::text::jsonb)`
+    await tx`INSERT INTO session_events (session_id, actor_id, kind, detail) VALUES (${id}, ${user.id}, 'create', ${json({ role, paths: paths.length, ttlMinutes: ttl })})`
     await recordRbac(tx, { orgId: orgIdOf(repo), actor: user, action: 'session.create', payload: { session: id, repo: Number(repo.id), issue: Number(issue.number), user: Number(target.id), role, pathCount: paths.length, ttlMinutes: ttl } })
     return id
   })
@@ -223,20 +225,20 @@ sessions.get('/repos/:owner/:repo/sessions', async (c) => {
   const repo = await findRepo(c.req.param('owner')!, c.req.param('repo')!)
   if (!repo || !(await can(user, repo, 'read'))) return c.json({ error: 'not found' }, 404)
   const all = await can(user, repo, 'maintain')
-  await sql`UPDATE task_sessions SET status = 'expired', ended_at = expires_at WHERE repo_id = ${repo.id} AND status = 'active' AND expires_at <= now()`
+  await sql`UPDATE task_sessions SET status = 'expired', ended_at = expires_at WHERE repo_id = ${repo.id} AND status = 'active' AND expires_at <= ${now()}`
   const status = c.req.query('status') ?? null
-  const rows = await sql`SELECT s.id FROM task_sessions s WHERE s.repo_id = ${repo.id} AND (${all} OR s.user_id = ${user.id}) AND (${status}::text IS NULL OR s.status = ${status}) ORDER BY s.created_at DESC LIMIT 200`
+  const rows = await sql`SELECT s.id FROM task_sessions s WHERE s.repo_id = ${repo.id} AND (${all ? 1 : 0} = 1 OR s.user_id = ${user.id}) AND (${status} IS NULL OR s.status = ${status}) ORDER BY s.created_at DESC LIMIT 200`
   return c.json({ sessions: (await Promise.all(rows.map((r: { id: string }) => sessionRow(r.id)))).map((s) => view(s!)) })
 })
 
 /** The caller's own sessions across repositories. */
 sessions.get('/sessions', async (c) => {
   const user = await authenticate(c); if (!user) return c.json({ error: 'sign in first' }, 401)
-  await sql`UPDATE task_sessions SET status = 'expired', ended_at = expires_at WHERE user_id = ${user.id} AND status = 'active' AND expires_at <= now()`
+  await sql`UPDATE task_sessions SET status = 'expired', ended_at = expires_at WHERE user_id = ${user.id} AND status = 'active' AND expires_at <= ${now()}`
   const status = c.req.query('status') ?? null
   const rows = await sql`SELECT s.id, COALESCE(u.login, o.login) AS owner, r.name AS repo FROM task_sessions s JOIN repos r ON r.id = s.repo_id
     LEFT JOIN users u ON r.owner_kind='user' AND u.id=r.owner_id LEFT JOIN orgs o ON r.owner_kind='org' AND o.id=r.owner_id
-    WHERE s.user_id = ${user.id} AND (${status}::text IS NULL OR s.status = ${status}) ORDER BY s.created_at DESC LIMIT 200`
+    WHERE s.user_id = ${user.id} AND (${status} IS NULL OR s.status = ${status}) ORDER BY s.created_at DESC LIMIT 200`
   return c.json({ sessions: (await Promise.all(rows.map(async (r: Record<string, any>) => ({ ...view((await sessionRow(r.id))!), owner: r.owner, repo: r.repo })))) })
 })
 
@@ -262,8 +264,8 @@ async function endSession(c: Context, reason: 'ended' | 'revoked') {
   const x = await sessionCtx(c, reason === 'revoked' ? 'maintainer' : 'either'); if (isResp(x)) return x
   if (x.s.status !== 'active') return c.json({ error: `session is already ${x.s.status}` }, 409)
   await sql.begin(async (tx) => {
-    await tx`UPDATE task_sessions SET status = 'ended', ended_at = now(), ended_by = ${x.user.id}, end_reason = ${reason} WHERE id = ${x.s.id}::uuid`
-    await tx`INSERT INTO session_events (session_id, actor_id, kind, detail) VALUES (${x.s.id}::uuid, ${x.user.id}, ${reason === 'revoked' ? 'revoke' : 'end'}, '{}'::jsonb)`
+    await tx`UPDATE task_sessions SET status = 'ended', ended_at = ${now()}, ended_by = ${x.user.id}, end_reason = ${reason} WHERE id = ${x.s.id}`
+    await tx`INSERT INTO session_events (session_id, actor_id, kind, detail) VALUES (${x.s.id}, ${x.user.id}, ${reason === 'revoked' ? 'revoke' : 'end'}, '{}')`
     await recordRbac(tx, { orgId: orgIdOf(x.repo), actor: x.user, action: reason === 'revoked' ? 'session.revoke' : 'session.end', payload: { session: x.s.id, repo: Number(x.repo.id), issue: Number(x.s.issue_number), user: Number(x.s.user_id) } })
   })
   return c.json(view((await sessionRow(x.s.id))!))
@@ -273,8 +275,8 @@ sessions.post('/sessions/:id/revoke', (c) => endSession(c, 'revoked'))
 
 sessions.get('/sessions/:id/events', async (c) => {
   const x = await sessionCtx(c, 'maintainer'); if (isResp(x)) return x
-  const rows = await sql`SELECT e.id, e.kind, e.detail, e.created_at, u.login AS actor FROM session_events e LEFT JOIN users u ON u.id = e.actor_id WHERE e.session_id = ${x.s.id}::uuid ORDER BY e.id DESC LIMIT 500`
-  return c.json({ events: rows.map((e: Record<string, any>) => ({ id: Number(e.id), kind: e.kind, actor: e.actor, detail: e.detail, createdAt: e.created_at })) })
+  const rows = await sql`SELECT e.id, e.kind, e.detail, e.created_at, u.login AS actor FROM session_events e LEFT JOIN users u ON u.id = e.actor_id WHERE e.session_id = ${x.s.id} ORDER BY e.id DESC LIMIT 500`
+  return c.json({ events: rows.map((e: Record<string, any>) => ({ id: Number(e.id), kind: e.kind, actor: e.actor, detail: parseJson(e.detail), createdAt: e.created_at })) })
 })
 
 /** The task itself (title/body) for the assigned developer. */

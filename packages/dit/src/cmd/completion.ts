@@ -2,7 +2,7 @@ import { UsageError } from '../errors.ts'
 
 export const TREE: Record<string, string[]> = {
   login: [], logout: [], whoami: [], auth: ['status', 'login', 'logout', 'setup-git', 'username'], clone: [], init: [], credential: ['get', 'store', 'erase'],
-  repo: ['create', 'list', 'view', 'ls', 'cat', 'commits', 'ledger', 'collaborators', 'grant-team'], label: ['list', 'create', 'edit', 'delete'], token: ['create'], name: ['resolve'], deployments: ['list', 'latest'], recover: [], protect: ['set', 'remove', 'list'],
+  repo: ['create', 'list', 'view', 'ls', 'cat', 'commits', 'ledger', 'collaborators', 'grant-team'], label: ['list', 'create', 'edit', 'delete'], token: ['create'], name: ['resolve'], deployments: ['list', 'latest'], recover: [], keys: ['init', 'register', 'show'], protect: ['set', 'remove', 'list'],
   issue: ['list', 'view', 'create', 'edit', 'events', 'comment', 'close', 'reopen', 'label', 'assign', 'import'],
   pr: ['list', 'view', 'create', 'edit', 'comment', 'diff', 'files', 'checks', 'review', 'merge', 'close', 'reopen', 'checkout'],
   org: ['list', 'view', 'create', 'members', 'team', 'log'],

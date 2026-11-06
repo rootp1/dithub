@@ -17,6 +17,11 @@ import {
   renewArkivEntities,
   uploadManifestToArkiv,
   fetchRepositoryFromArkiv,
+  createSwarmClient,
+  hexToBytes,
+  publishPackToSwarm,
+  reconstructBundle,
+  swarmConfigFromEnv,
   verifyRepository,
   verifyCollaborationRecord,
 } from '../../sdk/src/index.ts'
@@ -82,7 +87,8 @@ function usage(): never {
 Commands:
   init <name> [--network path] [--repo path]
   push <name|repoId> [--network path] [--repo path]
-  arkiv-publish <name|repoId> [--network path] [--access-key key]
+  arkiv-publish <name|repoId> [--network path] [--access-key key] [--swarm-only]
+  arkiv-clone <repoId> <manifestHash> <destination> [--access-key key] [--swarm-key hex] [--no-swarm]
   anchor <name|repoId> --rpc url --chain-id id --ref-registry address [--ref name]
   anchor-signed <name|repoId> --rpc url --chain-id id --ref-registry address [--ref name]
   anchor-plan <name|repoId> --rpc url --chain-id id --ref-registry address [--ref name]
@@ -100,7 +106,10 @@ Commands:
 Options:
   --json        machine-readable output
   --network     local network store (default: .dheet-network)
-  --repo        Git repository path (default: current directory)`)
+  --repo        Git repository path (default: current directory)
+
+Swarm: set BEE_URL (and BEE_POSTAGE_BATCH_ID to upload). arkiv-publish then stores the pack on Swarm and
+records its refs in the Arkiv manifest; arkiv-clone reads Swarm first and falls back to Arkiv chunks.`)
   process.exit(2)
 }
 
@@ -147,7 +156,16 @@ async function main(): Promise<void> {
         privateKey: '0x0000000000000000000000000000000000000000000000000000000000000001',
         accessKey: option(args, 'access-key', process.env.ARKIV_ACCESS_KEY ?? ''),
       })
-      const manifest = await fetchRepositoryFromArkiv({ repoId, manifestHash, connection, store })
+      const swarmKey = typeof args.options['swarm-key'] === 'string' ? hexToBytes(args.options['swarm-key']) : undefined
+      const manifest = await fetchRepositoryFromArkiv({
+        repoId,
+        manifestHash,
+        connection,
+        store,
+        ...(args.options['no-swarm'] === true ? { swarm: null } : {}),
+        ...(swarmKey ? { swarmKey } : {}),
+        log: (message) => console.error(message),
+      })
       cloneRepository(repoId, destination, store)
       output(args, manifest, `Fetched ${manifest.name} from Arkiv and cloned to ${destination}`)
       return
@@ -164,15 +182,28 @@ async function main(): Promise<void> {
         privateKey: privateKey as `0x${string}`,
         accessKey: option(args, 'access-key', process.env.ARKIV_ACCESS_KEY ?? ''),
       })
+      const manifest = store.getManifest(repo.manifestHash)
+      const swarmConfig = swarmConfigFromEnv()
+      if (!swarmConfig && args.options['swarm-only'] === true) throw new Error('--swarm-only needs BEE_URL and BEE_POSTAGE_BATCH_ID')
+      const swarm = swarmConfig
+        ? await publishPackToSwarm(createSwarmClient(swarmConfig), {
+          repoId: manifest.repoId,
+          packBytes: reconstructBundle(store, manifest),
+          manifest,
+        })
+        : undefined
+      if (!swarm) console.error('Swarm disabled (BEE_URL unset); pack bytes go to Arkiv chunks only')
       const result = await uploadManifestToArkiv({
-        manifest: store.getManifest(repo.manifestHash),
+        manifest,
         localStore: store,
         connection,
+        ...(swarm ? { swarm } : {}),
+        ...(args.options['swarm-only'] === true ? { uploadChunks: false } : {}),
       })
       output(
         args,
-        result,
-        `Uploaded manifest to Arkiv\nentity: ${result.manifestEntityKey}\nchunks: ${result.chunkEntities}\nexpires: ${result.expiresAt}`,
+        { ...result, ...(swarm ? { swarm } : {}) },
+        `Uploaded manifest to Arkiv\nentity: ${result.manifestEntityKey}\nchunks: ${result.chunkEntities}\nexpires: ${result.expiresAt}${swarm ? `\nswarm pack: ${swarm.packRef}\nswarm manifest: ${swarm.manifestRef}` : ''}`,
       )
       return
     }

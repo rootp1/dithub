@@ -1,15 +1,11 @@
 name: dheet
+# Local services for development. The app itself runs on the host (`bun run api`, `bun run worker`) against
+# one SQLite file (DATABASE_PATH, default .data/dithub.sqlite); there is no database server.
 services:
-  postgres:
-    image: postgres:16-alpine
-    env_file: .env
-    ports: ["127.0.0.1:5432:5432"]
-    volumes: ["pgdata:/var/lib/postgresql/data"]
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
+  bee:                               # Swarm: a throwaway in-memory Bee in dev mode (no chain, no peers, free stamps)
+    image: ethersphere/bee:1.17.6    # last release with `bee dev`; production runs a 2.x light node
+    command: ["dev", "--api-addr=:1633", "--cors-allowed-origins=*"]
+    ports: ["127.0.0.1:1633:1633"]
     restart: unless-stopped
   redis:
     image: redis:7-alpine
@@ -41,4 +37,4 @@ services:
     image: axllent/mailpit:latest
     ports: ["127.0.0.1:1025:1025", "127.0.0.1:8025:8025"]
     restart: unless-stopped
-volumes: { pgdata: {}, redisdata: {}, objectdata: {}, meilidata: {} }
+volumes: { redisdata: {}, objectdata: {}, meilidata: {} }

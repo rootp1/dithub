@@ -9,19 +9,20 @@ import { getCookie } from 'hono/cookie'
 import { createHash, randomBytes, randomInt, timingSafeEqual } from 'node:crypto'
 import { config } from './config.ts'
 import { sql } from './db.ts'
-import { authenticate, createToken } from './auth.ts'
+import { authenticate, createToken, COOKIE } from './auth.ts'
 
 export const cliAuth = new Hono()
 
 const TTL_SECONDS = 600
 const INTERVAL = 5
-const COOKIE = 'dheet_session'
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789' // no 0/O/1/I
 const sha = (v: string) => createHash('sha256').update(v).digest()
 const normCode = (v: string) => v.toUpperCase().replace(/[^A-Z0-9]/g, '')
 const prettyCode = (n: string) => `${n.slice(0, 4)}-${n.slice(4)}`
 const esc = (s: string) => s.replace(/[&<>"']/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[ch]!)
 const eq = (a: Buffer, b: Buffer) => a.length === b.length && timingSafeEqual(a, b)
+/** ISO-8601 UTC with ms, offset by `ms` from now; timestamps are TEXT in SQLite and compare lexically. */
+const at = (ms = 0) => new Date(Date.now() + ms).toISOString()
 
 // Per-IP fixed-window limiter (the edge proxy sets x-forwarded-for, like the /api/auth limiter in index.ts).
 const hits = new Map<string, { n: number; reset: number }>()
@@ -59,7 +60,7 @@ button.p{background:var(--acc);border-color:var(--acc);color:#fff}input[type=tex
 </style></head><body><main>${body}</main></body></html>`, { status, headers: HTML_HEADERS })
 }
 
-async function cleanup() { await sql`DELETE FROM cli_device_codes WHERE expires_at < now() - interval '1 day'`.catch(() => {}) }
+async function cleanup() { await sql`DELETE FROM cli_device_codes WHERE expires_at < ${at(-86_400_000)}`.catch(() => {}) }
 
 cliAuth.post('/api/cli/device', async (c) => {
   if (limited(c, 'cli-new', 10)) return c.json({ error: 'too many requests' }, 429)
@@ -70,7 +71,7 @@ cliAuth.post('/api/cli/device', async (c) => {
   for (let attempt = 0; attempt < 5; attempt++) {
     const norm = Array.from({ length: 8 }, () => ALPHABET[randomInt(ALPHABET.length)]).join('')
     const ins = await sql`INSERT INTO cli_device_codes (device_hash, user_hash, client_name, expires_at)
-      VALUES (${sha(deviceCode)}, ${sha(norm)}, ${name}, now() + (${TTL_SECONDS} * interval '1 second'))
+      VALUES (${sha(deviceCode)}, ${sha(norm)}, ${name}, ${at(TTL_SECONDS * 1000)})
       ON CONFLICT DO NOTHING RETURNING id`
     if (!ins.length) continue
     const userCode = prettyCode(norm)
@@ -82,8 +83,9 @@ cliAuth.post('/api/cli/device', async (c) => {
 async function rowByUserCode(code: string) {
   const norm = normCode(code)
   if (norm.length !== 8) return null
-  const [r] = await sql`SELECT id, user_hash, client_name, status, expires_at > now() AS live FROM cli_device_codes WHERE user_hash = ${sha(norm)}`
-  return r && eq(Buffer.from(r.user_hash), sha(norm)) ? (r as { id: number; client_name: string; status: string; live: boolean }) : null
+  const [r] = await sql`SELECT id, user_hash, client_name, status, expires_at FROM cli_device_codes WHERE user_hash = ${sha(norm)}`
+  if (!r || !eq(Buffer.from(r.user_hash), sha(norm))) return null
+  return { id: Number(r.id), client_name: String(r.client_name), status: String(r.status), live: String(r.expires_at) > at() }
 }
 
 const hostname = () => new URL(config.publicUrl).host
@@ -136,8 +138,8 @@ cliAuth.post('/api/cli/device/approve', async (c) => {
   if (!sec?.csrf_hash || !sec.csrf_session || !eq(Buffer.from(sec.csrf_hash), sha(csrf)) || !eq(Buffer.from(sec.csrf_session), sha(cookie))) return bad()
   // One-time: the csrf value is cleared in the same statement that changes the status.
   const upd = action === 'deny'
-    ? await sql`UPDATE cli_device_codes SET status = 'denied', csrf_hash = NULL, csrf_session = NULL WHERE id = ${row.id} AND status = 'pending' AND expires_at > now() RETURNING id`
-    : await sql`UPDATE cli_device_codes SET status = 'approved', user_id = ${user.id}, approved_at = now(), csrf_hash = NULL, csrf_session = NULL WHERE id = ${row.id} AND status = 'pending' AND expires_at > now() RETURNING id`
+    ? await sql`UPDATE cli_device_codes SET status = 'denied', csrf_hash = NULL, csrf_session = NULL WHERE id = ${row.id} AND status = 'pending' AND expires_at > ${at()} RETURNING id`
+    : await sql`UPDATE cli_device_codes SET status = 'approved', user_id = ${user.id}, approved_at = ${at()}, csrf_hash = NULL, csrf_session = NULL WHERE id = ${row.id} AND status = 'pending' AND expires_at > ${at()} RETURNING id`
   if (!upd.length) return bad()
   return action === 'deny'
     ? page('Denied', '<h1>Denied</h1><p>The CLI was not given access.</p>')
@@ -149,19 +151,21 @@ cliAuth.post('/api/cli/token', async (c) => {
   const b = await c.req.json<{ deviceCode?: string }>().catch(() => ({} as { deviceCode?: string }))
   if (typeof b.deviceCode !== 'string' || b.deviceCode.length < 20 || b.deviceCode.length > 200) return c.json({ error: 'invalid_request' }, 400)
   const h = sha(b.deviceCode)
-  const [r] = await sql`SELECT id, device_hash, status, user_id, client_name, expires_at <= now() AS expired,
-      (last_poll_at IS NOT NULL AND last_poll_at > now() - ((${INTERVAL - 1}) * interval '1 second')) AS too_fast
+  const t = at()
+  const [r] = await sql`SELECT id, device_hash, status, user_id, client_name, expires_at, last_poll_at
     FROM cli_device_codes WHERE device_hash = ${h}`
   if (!r || !eq(Buffer.from(r.device_hash), h)) return c.json({ error: 'invalid_grant' }, 400)
-  if (r.expired || r.status === 'consumed') return c.json({ error: 'expired_token' }, 400)
+  const expired = String(r.expires_at) <= t
+  const tooFast = r.last_poll_at != null && String(r.last_poll_at) > at(-(INTERVAL - 1) * 1000)
+  if (expired || r.status === 'consumed') return c.json({ error: 'expired_token' }, 400)
   if (r.status === 'denied') return c.json({ error: 'access_denied' }, 403)
   if (r.status === 'pending') {
-    if (r.too_fast) return c.json({ error: 'slow_down' }, 429)
-    await sql`UPDATE cli_device_codes SET last_poll_at = now() WHERE id = ${r.id}`
+    if (tooFast) return c.json({ error: 'slow_down' }, 429)
+    await sql`UPDATE cli_device_codes SET last_poll_at = ${t} WHERE id = ${r.id}`
     return c.json({ error: 'authorization_pending' }, 400)
   }
   // approved: flip to consumed atomically so exactly one poll receives the token.
-  const claimed = await sql`UPDATE cli_device_codes SET status = 'consumed' WHERE id = ${r.id} AND status = 'approved' AND expires_at > now() RETURNING user_id`
+  const claimed = await sql`UPDATE cli_device_codes SET status = 'consumed' WHERE id = ${r.id} AND status = 'approved' AND expires_at > ${t} RETURNING user_id`
   if (!claimed.length) return c.json({ error: 'expired_token' }, 400)
   const [u] = await sql`SELECT login FROM users WHERE id = ${claimed[0].user_id} AND suspended_at IS NULL`
   if (!u) return c.json({ error: 'access_denied' }, 403)
@@ -172,6 +176,6 @@ cliAuth.post('/api/cli/token', async (c) => {
 cliAuth.delete('/api/cli/token', async (c) => {
   const header = c.req.header('authorization') ?? ''
   if (!header.startsWith('Bearer ')) return c.json({ error: 'send the token to revoke as a Bearer token' }, 400)
-  const rows = await sql`UPDATE access_tokens SET revoked_at = now() WHERE token_hash = ${sha(header.slice(7).trim())} AND revoked_at IS NULL RETURNING id`
+  const rows = await sql`UPDATE access_tokens SET revoked_at = ${at()} WHERE token_hash = ${sha(header.slice(7).trim())} AND revoked_at IS NULL RETURNING id`
   return rows.length ? c.json({ ok: true }) : c.json({ error: 'token not found or already revoked' }, 404)
 })

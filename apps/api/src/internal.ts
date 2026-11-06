@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { sql, hex } from './db.ts'
+import { sql, hex, json, now, bool } from './db.ts'
 import { config } from './config.ts'
 import { can, type RepoRow } from './perm.ts'
 import { git, listCommits, repoPath, ZERO_OID, safeRef } from './gitrepo.ts'
@@ -22,9 +22,9 @@ async function loadContext(repoIdHex: string, userId: string | undefined) {
   if (!repo) return null
   let user: AuthUser | null = null
   if (userId) {
-    const [u] = await sql`SELECT u.id, u.login, u.is_site_admin, (SELECT address FROM wallets WHERE user_id = u.id AND is_primary LIMIT 1) AS address
+    const [u] = await sql`SELECT u.id, u.login, u.is_site_admin, (SELECT address FROM wallets WHERE user_id = u.id AND is_primary = 1 LIMIT 1) AS address
       FROM users u WHERE u.id = ${Number(userId)}`
-    if (u) user = { id: Number(u.id), login: u.login, isAdmin: u.is_site_admin, wallet: u.address ? `0x${Buffer.from(u.address).toString('hex')}` : null }
+    if (u) user = { id: Number(u.id), login: u.login, isAdmin: bool(u.is_site_admin), wallet: u.address ? `0x${Buffer.from(u.address).toString('hex')}` : null }
   }
   return { repo: repo as RepoRow, user }
 }
@@ -45,11 +45,11 @@ internal.post('/pre-receive', async (c) => {
     const rule = u.ref.startsWith('refs/heads/') ? rules.find((r: { pattern: string }) => globToRegex(r.pattern).test(branch)) : undefined
     if (!rule) continue
     const isAdmin = await can(user, repo, 'admin')
-    if (ZERO_OID.test(u.newOid) && !rule.allow_deletions) return c.text(`deleting protected branch ${branch} is not allowed`, 403)
+    if (ZERO_OID.test(u.newOid) && !bool(rule.allow_deletions)) return c.text(`deleting protected branch ${branch} is not allowed`, 403)
     if (!ZERO_OID.test(u.oldOid) && !ZERO_OID.test(u.newOid)) {
-      if (u.ff === false && !rule.allow_force_push) return c.text(`force-push to protected branch ${branch} is not allowed`, 403)
+      if (u.ff === false && !bool(rule.allow_force_push)) return c.text(`force-push to protected branch ${branch} is not allowed`, 403)
     }
-    if (rule.require_pr && !isAdmin) return c.text(`branch ${branch} requires a pull request`, 403)
+    if (bool(rule.require_pr) && !isAdmin) return c.text(`branch ${branch} requires a pull request`, 403)
   }
   return c.text('ok')
 })
@@ -76,26 +76,27 @@ export async function recordRefUpdates(repo: RepoRow, user: AuthUser | null, rep
     const range = deleted ? [] : created ? [u.newOid, '--not', ...(await otherRefs(dir, u.ref))] : [`${u.oldOid}..${u.newOid}`]
     const commits = deleted ? [] : await listCommits(dir, range, 200)
 
+    const at = now()
     await sql.begin(async (tx) => {
       const [push] = await tx`INSERT INTO pushes (repo_id, pusher_id, pusher_wallet, ref_name, old_oid, new_oid, forced)
         VALUES (${repo.id}, ${user?.id ?? null}, ${user?.wallet ? hex(user.wallet) : null}, ${u.ref},
-                ${created ? null : hex(u.oldOid)}, ${deleted ? null : hex(u.newOid)}, ${forced}) RETURNING id`
+                ${created ? null : hex(u.oldOid)}, ${deleted ? null : hex(u.newOid)}, ${forced ? 1 : 0}) RETURNING id`
       if (deleted) await tx`DELETE FROM git_refs WHERE repo_id = ${repo.id} AND name = ${u.ref}`
       else await tx`INSERT INTO git_refs (repo_id, name, oid) VALUES (${repo.id}, ${u.ref}, ${hex(u.newOid)})
-        ON CONFLICT (repo_id, name) DO UPDATE SET oid = EXCLUDED.oid, updated_at = now()`
+        ON CONFLICT (repo_id, name) DO UPDATE SET oid = EXCLUDED.oid, updated_at = ${at}`
       for (const cm of commits) {
         await tx`INSERT INTO commits (repo_id, oid, tree_oid, parent_oids, author_name, author_email, authored_at, committed_at, message, subject)
-          VALUES (${repo.id}, ${hex(cm.oid)}, ${hex(cm.tree)}, ${cm.parents.map(hex)}, ${cm.authorName}, ${cm.authorEmail},
-                  ${new Date(cm.authoredAt * 1000)}, ${new Date(cm.committedAt * 1000)}, ${cm.message}, ${cm.subject})
+          VALUES (${repo.id}, ${hex(cm.oid)}, ${hex(cm.tree)}, ${json(cm.parents.map((p) => p.toLowerCase()))}, ${cm.authorName}, ${cm.authorEmail},
+                  ${new Date(cm.authoredAt * 1000).toISOString()}, ${new Date(cm.committedAt * 1000).toISOString()}, ${cm.message}, ${cm.subject})
           ON CONFLICT DO NOTHING`
         await tx`INSERT INTO commit_anchors (repo_id, commit_oid, push_id, ref_name)
           VALUES (${repo.id}, ${hex(cm.oid)}, ${push.id}, ${u.ref}) ON CONFLICT DO NOTHING`
       }
-      await tx`UPDATE repos SET pushed_at = now(), updated_at = now() WHERE id = ${repo.id}`
+      await tx`UPDATE repos SET pushed_at = ${at}, updated_at = ${at} WHERE id = ${repo.id}`
       await tx`INSERT INTO activity (repo_id, actor_id, kind, payload) VALUES (${repo.id}, ${user?.id ?? null}, 'push',
-        ${JSON.stringify({ ref: u.ref, commits: commits.length, forced, deleted })}::text::jsonb)`
+        ${json({ ref: u.ref, commits: commits.length, forced, deleted })})`
       await tx`INSERT INTO outbox (aggregate_type, aggregate_id, kind, payload)
-        VALUES ('push', ${push.id}, 'push', ${JSON.stringify({ pushId: Number(push.id), repoId: repoIdHex })}::text::jsonb)`
+        VALUES ('push', ${push.id}, 'push', ${json({ pushId: Number(push.id), repoId: repoIdHex })})`
     })
     if (!deleted && u.ref.startsWith('refs/heads/') && !firstBranch) firstBranch = u.ref.replace('refs/heads/', '')
   }

@@ -82,7 +82,7 @@ export async function deploymentsCmd(argv: string[]): Promise<number> {
   const rows = r.deployments.slice(0, Number(str(p.values.limit)) || 20)
   if (json) { printJson({ source: r.source, deployments: rows }); return 0 }
   console.log(table(['RELEASE', 'COMMIT', 'BUNDLE HASH', 'ATTESTED', 'PUBLISH TX', 'ATTEST TX'], rows.map((d) => [`#${d.releaseId}`, short(d.commit, 8), short(d.bundleHash, 12), d.attested ? (d.ok ? c.green('ok') : c.red('MISMATCH')) : c.yellow('no'), short(d.publishTx, 12), short(d.attestTx, 12)])))
-  console.log(c.dim(`source: ${r.source}${r.source !== 'arkiv' ? ' (Arkiv was unreachable; showing the Postgres mirror)' : ''}`))
+  console.log(c.dim(`source: ${r.source}${r.source !== 'arkiv' ? ' (Arkiv was unreachable; showing the SQLite mirror)' : ''}`))
   return 0
 }
 

@@ -39,11 +39,11 @@ Not yet done: Arkiv mirror of ENS seats, cold-archive replication, renewal drill
 
 ## Platform phases 1-2 and Linode deployment (2026-11-06)
 
-Built: `apps/api` (Hono: SIWE login, PATs, orgs, repos, name->repoId, git smart HTTP, code browser, commits with tx hashes, ledger), `apps/git/hooks` (pre-receive policy incl. ENSv2 seat check on L1, post-receive recording), `apps/worker` (outbox -> one L1 anchor per ref update, one Arkiv activity entity per commit carrying the L1 tx, name claims, code manifest upload, Arkiv renewal), `apps/web` (wallet login, create repo, file browser, commits with chips, ledger), Postgres schema (`packages/db/migrations`, 46 tables).
+Built: `apps/api` (Hono: SIWE login, PATs, orgs, repos, name->repoId, git smart HTTP, code browser, commits with tx hashes, ledger), `apps/git/hooks` (pre-receive policy incl. ENSv2 seat check on L1, post-receive recording), `apps/worker` (outbox -> one L1 anchor per ref update, one Arkiv activity entity per commit carrying the L1 tx, name claims, code manifest upload, Arkiv renewal), `apps/web` (wallet login, create repo, file browser, commits with chips, ledger), SQLite schema (`packages/db/schema.sql`, consolidated from the Postgres migrations now in `packages/db/postgres-legacy/`).
 
 Verified: `scripts/e2e-platform.ts` (16 checks, local) and `scripts/smoke-prod.ts` (8 checks, production).
 
-Production: one Linode 4 GB (`ap-west`, Cloud Firewall 22/80/443, key-only SSH, fail2ban, unattended upgrades) running Caddy (automatic TLS), API, worker and Postgres via `infra/docker-compose.prod.yml`. Cost about $24/month against the $100 promotional credit (expires 2027-02-01).
+Production: one Linode 4 GB (`ap-west`, Cloud Firewall 22/80/443, key-only SSH, fail2ban, unattended upgrades) running Caddy (automatic TLS), API, worker (sharing one SQLite file) and a Bee light node via `infra/docker-compose.prod.yml`. Cost about $24/month against the $100 promotional credit (expires 2027-02-01).
 
 Known gaps: no backups yet (add `pg_dump` to Object Storage or enable Linode Backups, +$5/month), no Redis/search in production (not used by the apps yet), the relayer key is a testnet-only key stored in `infra/prod.env` (mode 600) on the server, EOA-only wallet login (no EIP-1271 yet), phase 3 (issues, PRs, reviews, merge) not started.
 
@@ -54,8 +54,8 @@ ENSv2 seat gating was removed from the platform (migration `0002`: dropped `ens_
 RBAC is a web2 feature: org owners/members, teams, per-repo collaborators (read/triage/write/maintain/admin), team repo access and branch protection, all managed through `/api` (see `apps/api/src/rbac.ts`) and enforced at git `pre-receive`.
 
 - **Public orgs:** every RBAC change is appended to a hash chain (`rbac_events`, `hash = sha256(prev || canonical(event))`) and the worker mirrors each event to Arkiv. Anyone can recompute the chain from the log and compare to the head. This proves the log was not rewritten; it does not prove which Arkiv RPC answers are complete.
-- **Private orgs:** same RBAC, recorded in Postgres (`rbac_events`, `audit_log`) only; nothing is queued or sent on-chain; repos in a private org are forced private; non-members get 404.
-- The chain head is not yet anchored on L1 (planned with the manifest-hash anchoring and Arkiv-to-Postgres rebuild).
+- **Private orgs:** same RBAC, recorded in the local SQLite index (`rbac_events`, `audit_log`) only; nothing is queued or sent on-chain; repos in a private org are forced private; non-members get 404.
+- The chain head is not yet anchored on L1 (planned with the manifest-hash anchoring and Arkiv+Swarm-to-SQLite rebuild).
 - Fixed along the way: JSON payloads were stored as JSON strings (migration `0003` repairs them); fast-forward detection moved into the `pre-receive` hook because the API cannot see git's quarantined objects.
 
 Verified: `scripts/e2e-platform.ts` 27/27 locally; `scripts/smoke-prod.ts` 8/8 on production.

@@ -22,9 +22,10 @@ Platform commands
   session list|open|issue|ls|cat|export|ask|summarize|propose|end   task-scoped access
   session create|revoke|events       (maintainers)
   label list|create|edit|delete      issue labels
+  keys init|register|show            this device's key for private repositories
   token create                       mint an extra personal access token (never echoed to a terminal)
   name resolve <owner/repo>          repo id, claimant and Arkiv entity of a name
-  deployments [list|latest]          release history (Arkiv, with Postgres fallback) and attestations
+  deployments [list|latest]          release history (Arkiv, with SQLite fallback) and attestations
   verify site|commit|rebuild         check the site / a commit / the on-chain release against its public source
   recover <repo> [dir]               rebuild a repo from Arkiv alone, without the Dithub server
   credential get|store|erase         git credential helper (called by git)
@@ -321,7 +322,7 @@ Example:
   dit name resolve rootp1/smoke-mw4iu8wl`,
   deployments: `dit deployments [list|latest] [-L n]
 
-Release history (read from Arkiv; "source" says arkiv or postgres-fallback): release id, commit, bundleHash,
+Release history (read from Arkiv; "source" says arkiv or sqlite-fallback): release id, commit, bundleHash,
 attestation result and the publish / attest transaction hashes.
 
 Examples:
@@ -342,6 +343,21 @@ Examples:
   dit recover rootp1/smoke-mw4iu8wl
   dit recover 0xbcd0...e436 ./rescued --manifest-hash 0x9e83...6be5
   dit recover alice/web --arkiv-only --json`,
+  keys: `dit keys [init|register|show] [--host URL] [--json]
+
+This device's X25519 key for private repositories. Private repo keys are sealed to registered device keys.
+The private key is stored 0600 in the dit config dir (device-key.json) and never leaves this machine.
+
+  dit keys init [--force]                 create the key (or reuse it) and start registration
+  dit keys register [--signature 0x...|-]  register the public key; the signature is your wallet's
+                                          personal_sign of the statement dit prints (- reads stdin)
+  dit keys show                           public key, file and registration status
+
+Without --signature, dit prints the statement and a link to sign it in the browser with your wallet.
+
+Examples:
+  dit keys init
+  dit keys register --signature 0x5d1f...1b`,
   version: `dit version [--json]    print the version`,
 }
 

@@ -1,27 +1,37 @@
 name: dheet-prod
+# api and worker share one SQLite file on the `db` volume (WAL mode); there is no database server.
+# Swarm runs as a Bee light node on the internal network only; its API is never published.
 x-app: &app
   build: { context: .., dockerfile: Dockerfile, args: { GIT_COMMIT: "${GIT_COMMIT:-dev}", L1_NETWORK: "${L1_NETWORK:-base}" } }
-  env_file: [prod.env]
+  env_file: [prod.env]                # SESSION_SECRET, DITHUB_DEVICE_KEY, BEE_POSTAGE_BATCH_ID, keys, RPCs
+  environment:
+    DATABASE_PATH: /data/db/dithub.sqlite
+    BEE_URL: http://bee:1633
   restart: unless-stopped
-  depends_on: { postgres: { condition: service_healthy } }
   security_opt: ["no-new-privileges:true"]
   cap_drop: ["ALL"]
 services:
-  postgres:
-    image: postgres:16-alpine
-    env_file: [prod.env]
-    volumes: ["pgdata:/var/lib/postgresql/data"]
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
+  bee:
+    image: ethersphere/bee:2.8.3
+    command: ["start"]
+    env_file: [.env.bee]              # BEE_PASSWORD, BEE_BLOCKCHAIN_RPC_ENDPOINT (Gnosis Chain); see bee.env.example
+    environment:
+      BEE_MAINNET: "true"
+      BEE_FULL_NODE: "false"          # light node: uploads and downloads, no storage reserve
+      BEE_SWAP_ENABLE: "true"         # needed to buy postage batches and pay for bandwidth
+      BEE_API_ADDR: ":1633"
+      BEE_P2P_ADDR: ":1634"
+      BEE_DATA_DIR: /home/bee/.bee
+    volumes: ["beedata:/home/bee/.bee"]   # node identity, chequebook state and batches: back this up
+    # no healthcheck: the image ships no curl/wget. The api reports Swarm reachability itself.
     restart: unless-stopped
+    security_opt: ["no-new-privileges:true"]
     deploy: { resources: { limits: { memory: 1g } } }
   api:
     <<: *app
     command: ["sh", "-c", "bun apps/api/src/migrate.ts && exec bun apps/api/src/index.ts"]
-    volumes: ["repos:/data/repos"]
+    volumes: ["repos:/data/repos", "db:/data/db"]
+    depends_on: { bee: { condition: service_started } }
     healthcheck:
       test: ["CMD", "curl", "-fs", "http://127.0.0.1:3000/api/health"]
       interval: 15s
@@ -31,8 +41,8 @@ services:
   worker:
     <<: *app
     command: ["bun", "apps/worker/src/index.ts"]
-    volumes: ["repos:/data/repos:ro", "workerdata:/data/worker"]
-    depends_on: { api: { condition: service_healthy } }
+    volumes: ["repos:/data/repos:ro", "workerdata:/data/worker", "db:/data/db"]
+    depends_on: { api: { condition: service_healthy } }   # the api applies migrations first
     deploy: { resources: { limits: { memory: 768m } } }
   caddy:
     image: caddy:2-alpine
@@ -41,4 +51,4 @@ services:
     volumes: ["./Caddyfile:/etc/caddy/Caddyfile:ro", "caddydata:/data", "caddyconfig:/config"]
     depends_on: { api: { condition: service_healthy } }
     restart: unless-stopped
-volumes: { pgdata: {}, repos: {}, workerdata: {}, caddydata: {}, caddyconfig: {} }
+volumes: { db: {}, repos: {}, workerdata: {}, beedata: {}, caddydata: {}, caddyconfig: {} }

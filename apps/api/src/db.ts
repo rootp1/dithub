@@ -1,8 +1,6 @@
-import { SQL } from 'bun'
+import { openDb } from '../../../packages/db/src/index.ts'
 import { config } from './config.ts'
 
-export const sql = new SQL(config.databaseUrl || 'postgres://invalid')
+export const sql = openDb(config.databasePath)
 
-export const hex = (value: string): Buffer => Buffer.from(value.replace(/^0x/, ''), 'hex')
-export const toHex = (value: Uint8Array | Buffer | null | undefined): string | null =>
-  value ? `0x${Buffer.from(value).toString('hex')}` : null
+export { hex, toHex, now, json, parseJson, bool, newId } from '../../../packages/db/src/index.ts'

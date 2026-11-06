@@ -2,9 +2,9 @@ import { sql } from './db.ts'
 import type { AuthUser } from './auth.ts'
 
 export interface RepoRow {
-  id: number; dheet_repo_id: Buffer; owner_kind: 'user' | 'org'; owner_id: number; name: string
+  id: number; dheet_repo_id: Uint8Array; owner_kind: 'user' | 'org'; owner_id: number; name: string
   visibility: 'public' | 'private' | 'internal'; default_branch: string; description: string | null
-  owner_login: string; pushed_at: Date | null; created_at: Date
+  owner_login: string; pushed_at: string | null; created_at: string   // ISO-8601 text (SQLite)
 }
 
 export async function findRepo(owner: string, name: string): Promise<RepoRow | null> {
@@ -32,7 +32,7 @@ async function level(user: AuthUser | null, repo: RepoRow): Promise<number> {
     best = Math.max(best, Number(t[0]?.p ?? 0))
   }
   const [c] = await sql`SELECT permission FROM repo_collaborators WHERE repo_id = ${repo.id} AND user_id = ${user.id}`
-  if (c) best = Math.max(best, rank[c.permission as Level])
+  if (c) best = Math.max(best, rank[c.permission as Level] ?? 0)
   return best
 }
 

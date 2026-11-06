@@ -1,9 +1,10 @@
 import { Hono } from 'hono'
 import { createHash } from 'node:crypto'
-import { sql, hex, toHex } from './db.ts'
+import { sql, hex, toHex, json, parseJson, bool } from './db.ts'
 import { authenticate, type AuthUser } from './auth.ts'
 import { can, findRepo, type RepoRow } from './perm.ts'
 import { config } from './config.ts'
+import { orgPrivateRepoIds, reconcileRepoKeys, snapshotAccess, teamPrivateRepoIds } from './keys.ts'
 
 export const rbac = new Hono()
 
@@ -17,19 +18,19 @@ type Tx = import('bun').TransactionSQL
 /** Append an RBAC change. Always lands in audit_log. Public orgs also get a hash-chained event that the worker mirrors to Arkiv. */
 export async function recordRbac(tx: Tx, args: { orgId: number | null; actor: AuthUser; action: string; payload: Record<string, unknown> }) {
   await tx`INSERT INTO audit_log (actor_id, actor_wallet, action, target_type, target_id, metadata)
-    VALUES (${args.actor.id}, ${args.actor.wallet ? hex(args.actor.wallet) : null}, ${args.action}, 'org', ${args.orgId}, ${JSON.stringify(args.payload)}::text::jsonb)`
+    VALUES (${args.actor.id}, ${args.actor.wallet ? hex(args.actor.wallet) : null}, ${args.action}, 'org', ${args.orgId}, ${json(args.payload)})`
   if (!args.orgId) return
   const [org] = await tx`UPDATE orgs SET rbac_seq = rbac_seq + 1 WHERE id = ${args.orgId} RETURNING rbac_seq, rbac_head, visibility`
   const isPublic = org.visibility === 'public'
   const event = { seq: Number(org.rbac_seq), action: args.action, actor: args.actor.login, payload: args.payload, at: new Date().toISOString() }
-  const prev: Buffer | null = org.rbac_head ? Buffer.from(org.rbac_head) : null
+  const prev: Buffer | null = org.rbac_head ? Buffer.from(org.rbac_head as Uint8Array) : null
   const hash = sha(Buffer.concat([prev ?? Buffer.alloc(32), Buffer.from(canonical(event))]))
   const [row] = await tx`INSERT INTO rbac_events (org_id, seq, actor_id, actor_login, action, payload, prev_hash, hash, public)
     VALUES (${args.orgId}, ${event.seq}, ${args.actor.id}, ${args.actor.login}, ${args.action},
-            ${canonical({ ...args.payload, at: event.at })}::text::jsonb, ${prev}, ${hash}, ${isPublic}) RETURNING id`
+            ${canonical({ ...args.payload, at: event.at })}, ${prev}, ${hash}, ${isPublic ? 1 : 0}) RETURNING id`
   await tx`UPDATE orgs SET rbac_head = ${hash} WHERE id = ${args.orgId}`
   if (isPublic) await tx`INSERT INTO outbox (aggregate_type, aggregate_id, kind, payload)
-    VALUES ('rbac', ${row.id}, 'rbac', ${JSON.stringify({ eventId: Number(row.id) })}::text::jsonb)`
+    VALUES ('rbac', ${row.id}, 'rbac', ${json({ eventId: Number(row.id) })})`
 }
 
 async function requireUser(c: import('hono').Context) {
@@ -38,7 +39,7 @@ async function requireUser(c: import('hono').Context) {
 }
 async function orgByLogin(login: string) {
   const [o] = await sql`SELECT * FROM orgs WHERE login = ${login}`
-  return o as { id: number; login: string; visibility: 'public' | 'private'; rbac_head: Buffer | null; rbac_seq: number } | undefined
+  return o ? { ...o, id: Number(o.id) } as { id: number; login: string; visibility: 'public' | 'private'; rbac_head: Uint8Array | null; rbac_seq: number } : undefined
 }
 async function orgRole(org: { id: number }, user: AuthUser | null): Promise<'owner' | 'member' | null> {
   if (!user) return null
@@ -47,7 +48,7 @@ async function orgRole(org: { id: number }, user: AuthUser | null): Promise<'own
 }
 async function userByLogin(login: string) {
   const [u] = await sql`SELECT id, login FROM users WHERE login = ${login} AND suspended_at IS NULL`
-  return u as { id: number; login: string } | undefined
+  return u ? { id: Number(u.id), login: u.login as string } : undefined
 }
 
 // ----- organisations -----
@@ -71,10 +72,10 @@ rbac.post('/orgs', async (c) => {
 rbac.get('/me/orgs', async (c) => {
   const user = await requireUser(c); if (!user) return c.json({ error: 'sign in first' }, 401)
   const rows = await sql`SELECT o.login, o.visibility, m.role,
-      (SELECT count(*)::int FROM org_members x WHERE x.org_id = o.id) AS members,
-      (SELECT count(*)::int FROM repos r WHERE r.owner_kind = 'org' AND r.owner_id = o.id AND r.deleted_at IS NULL) AS repos
+      (SELECT count(*) FROM org_members x WHERE x.org_id = o.id) AS members,
+      (SELECT count(*) FROM repos r WHERE r.owner_kind = 'org' AND r.owner_id = o.id AND r.deleted_at IS NULL) AS repos
     FROM org_members m JOIN orgs o ON o.id = m.org_id WHERE m.user_id = ${user.id} ORDER BY lower(o.login)`
-  return c.json({ orgs: rows.map((r: { login: string; visibility: string; role: string; members: number; repos: number }) => ({ login: r.login, visibility: r.visibility, role: r.role, members: r.members, repos: r.repos })) })
+  return c.json({ orgs: rows.map((r: { login: string; visibility: string; role: string; members: number; repos: number }) => ({ login: r.login, visibility: r.visibility, role: r.role, members: Number(r.members), repos: Number(r.repos) })) })
 })
 
 rbac.get('/orgs/:org', async (c) => {
@@ -83,8 +84,8 @@ rbac.get('/orgs/:org', async (c) => {
   const role = await orgRole(org, user)
   if (org.visibility === 'private' && !role) return c.json({ error: 'not found' }, 404)
   const members = await sql`SELECT u.login, m.role FROM org_members m JOIN users u ON u.id = m.user_id WHERE m.org_id = ${org.id} ORDER BY u.login`
-  const teams = await sql`SELECT t.slug, t.name, (SELECT count(*)::int FROM team_members tm WHERE tm.team_id = t.id) AS members FROM teams t WHERE t.org_id = ${org.id} ORDER BY t.slug`
-  return c.json({ login: org.login, visibility: org.visibility, yourRole: role, members, teams, rbacHead: toHex(org.rbac_head), rbacSeq: Number(org.rbac_seq) })
+  const teams = await sql`SELECT t.slug, t.name, (SELECT count(*) FROM team_members tm WHERE tm.team_id = t.id) AS members FROM teams t WHERE t.org_id = ${org.id} ORDER BY t.slug`
+  return c.json({ login: org.login, visibility: org.visibility, yourRole: role, members, teams: teams.map((t: { slug: string; name: string; members: number }) => ({ ...t, members: Number(t.members) })), rbacHead: toHex(org.rbac_head), rbacSeq: Number(org.rbac_seq) })
 })
 
 rbac.put('/orgs/:org/members/:login', async (c) => {
@@ -96,12 +97,14 @@ rbac.put('/orgs/:org/members/:login', async (c) => {
   const target = await userByLogin(c.req.param('login')); if (!target) return c.json({ error: 'no such user' }, 404)
   const [existing] = await sql`SELECT role FROM org_members WHERE org_id = ${org.id} AND user_id = ${target.id}`
   if (existing?.role === 'owner' && role === 'member') {
-    const [n] = await sql`SELECT count(*)::int AS n FROM org_members WHERE org_id = ${org.id} AND role = 'owner'`
-    if (n.n <= 1) return c.json({ error: 'an organisation needs at least one owner' }, 409)
+    const [n] = await sql`SELECT count(*) AS n FROM org_members WHERE org_id = ${org.id} AND role = 'owner'`
+    if (Number(n.n) <= 1) return c.json({ error: 'an organisation needs at least one owner' }, 409)
   }
   await sql.begin(async (tx) => {
+    const before = await snapshotAccess(tx, await orgPrivateRepoIds(tx, org.id))
     await tx`INSERT INTO org_members (org_id, user_id, role) VALUES (${org.id}, ${target.id}, ${role})
       ON CONFLICT (org_id, user_id) DO UPDATE SET role = EXCLUDED.role`
+    await reconcileRepoKeys(tx, before)
     await recordRbac(tx, { orgId: org.id, actor: user, action: existing ? 'member.role' : 'member.add', payload: { user: target.login, role, was: existing?.role ?? null } })
   })
   return c.json({ ok: true })
@@ -116,12 +119,14 @@ rbac.delete('/orgs/:org/members/:login', async (c) => {
   const [m] = await sql`SELECT role FROM org_members WHERE org_id = ${org.id} AND user_id = ${target.id}`
   if (!m) return c.json({ error: 'not a member' }, 404)
   if (m.role === 'owner') {
-    const [n] = await sql`SELECT count(*)::int AS n FROM org_members WHERE org_id = ${org.id} AND role = 'owner'`
-    if (n.n <= 1) return c.json({ error: 'cannot remove the last owner' }, 409)
+    const [n] = await sql`SELECT count(*) AS n FROM org_members WHERE org_id = ${org.id} AND role = 'owner'`
+    if (Number(n.n) <= 1) return c.json({ error: 'cannot remove the last owner' }, 409)
   }
   await sql.begin(async (tx) => {
+    const before = await snapshotAccess(tx, await orgPrivateRepoIds(tx, org.id))
     await tx`DELETE FROM team_members WHERE user_id = ${target.id} AND team_id IN (SELECT id FROM teams WHERE org_id = ${org.id})`
     await tx`DELETE FROM org_members WHERE org_id = ${org.id} AND user_id = ${target.id}`
+    await reconcileRepoKeys(tx, before)
     await recordRbac(tx, { orgId: org.id, actor: user, action: 'member.remove', payload: { user: target.login } })
   })
   return c.json({ ok: true })
@@ -153,7 +158,9 @@ rbac.put('/orgs/:org/teams/:team/members/:login', async (c) => {
   const [m] = await sql`SELECT 1 FROM org_members WHERE org_id = ${org.id} AND user_id = ${target.id}`
   if (!m) return c.json({ error: 'user must be an org member first' }, 409)
   await sql.begin(async (tx) => {
+    const before = await snapshotAccess(tx, await teamPrivateRepoIds(tx, Number(team.id)))
     await tx`INSERT INTO team_members (team_id, user_id) VALUES (${team.id}, ${target.id}) ON CONFLICT DO NOTHING`
+    await reconcileRepoKeys(tx, before)
     await recordRbac(tx, { orgId: org.id, actor: user, action: 'team.member.add', payload: { team: c.req.param('team'), user: target.login } })
   })
   return c.json({ ok: true })
@@ -167,7 +174,9 @@ rbac.delete('/orgs/:org/teams/:team/members/:login', async (c) => {
   const target = await userByLogin(c.req.param('login'))
   if (!team || !target) return c.json({ error: 'team or user not found' }, 404)
   await sql.begin(async (tx) => {
+    const before = await snapshotAccess(tx, await teamPrivateRepoIds(tx, Number(team.id)))
     await tx`DELETE FROM team_members WHERE team_id = ${team.id} AND user_id = ${target.id}`
+    await reconcileRepoKeys(tx, before)
     await recordRbac(tx, { orgId: org.id, actor: user, action: 'team.member.remove', payload: { team: c.req.param('team'), user: target.login } })
   })
   return c.json({ ok: true })
@@ -196,8 +205,10 @@ rbac.put('/repos/:owner/:repo/collaborators/:login', async (c) => {
   if (!PERMS.includes(permission as never)) return c.json({ error: `permission must be one of ${PERMS.join(', ')}` }, 400)
   const target = await userByLogin(c.req.param('login')); if (!target) return c.json({ error: 'no such user' }, 404)
   await sql.begin(async (tx) => {
+    const before = await snapshotAccess(tx, [Number(r.repo.id)])
     await tx`INSERT INTO repo_collaborators (repo_id, user_id, permission) VALUES (${r.repo.id}, ${target.id}, ${permission})
       ON CONFLICT (repo_id, user_id) DO UPDATE SET permission = EXCLUDED.permission`
+    await reconcileRepoKeys(tx, before)
     await recordRbac(tx, { orgId: orgIdOf(r.repo), actor: r.user, action: 'collaborator.set', payload: { repo: `${r.repo.owner_login}/${r.repo.name}`, user: target.login, permission } })
   })
   return c.json({ ok: true })
@@ -207,7 +218,9 @@ rbac.delete('/repos/:owner/:repo/collaborators/:login', async (c) => {
   const r = await adminOf(c); if (r instanceof Response) return r
   const target = await userByLogin(c.req.param('login')); if (!target) return c.json({ error: 'no such user' }, 404)
   await sql.begin(async (tx) => {
+    const before = await snapshotAccess(tx, [Number(r.repo.id)])
     await tx`DELETE FROM repo_collaborators WHERE repo_id = ${r.repo.id} AND user_id = ${target.id}`
+    await reconcileRepoKeys(tx, before)
     await recordRbac(tx, { orgId: orgIdOf(r.repo), actor: r.user, action: 'collaborator.remove', payload: { repo: `${r.repo.owner_login}/${r.repo.name}`, user: target.login } })
   })
   return c.json({ ok: true })
@@ -221,8 +234,10 @@ rbac.put('/repos/:owner/:repo/teams/:team', async (c) => {
   const [team] = await sql`SELECT id FROM teams WHERE org_id = ${r.repo.owner_id} AND slug = ${c.req.param('team')}`
   if (!team) return c.json({ error: 'team not found' }, 404)
   await sql.begin(async (tx) => {
+    const before = await snapshotAccess(tx, [Number(r.repo.id)])
     await tx`INSERT INTO repo_team_access (repo_id, team_id, permission) VALUES (${r.repo.id}, ${team.id}, ${permission})
       ON CONFLICT (repo_id, team_id) DO UPDATE SET permission = EXCLUDED.permission`
+    await reconcileRepoKeys(tx, before)
     await recordRbac(tx, { orgId: orgIdOf(r.repo), actor: r.user, action: 'team.access.set', payload: { repo: `${r.repo.owner_login}/${r.repo.name}`, team: c.req.param('team'), permission } })
   })
   return c.json({ ok: true })
@@ -230,7 +245,9 @@ rbac.put('/repos/:owner/:repo/teams/:team', async (c) => {
 
 rbac.get('/repos/:owner/:repo/protections', async (c) => {
   const r = await adminOf(c); if (r instanceof Response) return r
-  return c.json({ protections: await sql`SELECT pattern, require_pr, required_approvals, allow_force_push, allow_deletions FROM branch_protections WHERE repo_id = ${r.repo.id} ORDER BY pattern` })
+  const rows = await sql`SELECT pattern, require_pr, required_approvals, allow_force_push, allow_deletions FROM branch_protections WHERE repo_id = ${r.repo.id} ORDER BY pattern`
+  return c.json({ protections: rows.map((p: Record<string, unknown>) => ({ pattern: p.pattern, require_pr: bool(p.require_pr), required_approvals: Number(p.required_approvals),
+    allow_force_push: bool(p.allow_force_push), allow_deletions: bool(p.allow_deletions) })) })
 })
 
 rbac.put('/repos/:owner/:repo/protections', async (c) => {
@@ -239,7 +256,7 @@ rbac.put('/repos/:owner/:repo/protections', async (c) => {
   if (!/^[A-Za-z0-9._\-/*]{1,100}$/.test(b.pattern ?? '')) return c.json({ error: 'invalid branch pattern' }, 400)
   await sql.begin(async (tx) => {
     await tx`INSERT INTO branch_protections (repo_id, pattern, require_pr, required_approvals, allow_force_push, allow_deletions)
-      VALUES (${r.repo.id}, ${b.pattern}, ${b.requirePr ?? true}, ${b.requiredApprovals ?? 1}, ${b.allowForcePush ?? false}, ${b.allowDeletions ?? false})
+      VALUES (${r.repo.id}, ${b.pattern}, ${(b.requirePr ?? true) ? 1 : 0}, ${b.requiredApprovals ?? 1}, ${b.allowForcePush ? 1 : 0}, ${b.allowDeletions ? 1 : 0})
       ON CONFLICT (repo_id, pattern) DO UPDATE SET require_pr = EXCLUDED.require_pr, required_approvals = EXCLUDED.required_approvals,
         allow_force_push = EXCLUDED.allow_force_push, allow_deletions = EXCLUDED.allow_deletions`
     await recordRbac(tx, { orgId: orgIdOf(r.repo), actor: r.user, action: 'protection.set', payload: { repo: `${r.repo.owner_login}/${r.repo.name}`, pattern: b.pattern, requirePr: b.requirePr ?? true, allowForcePush: b.allowForcePush ?? false } })
@@ -268,7 +285,7 @@ rbac.get('/orgs/:org/rbac-log', async (c) => {
     visibility: org.visibility,
     verifiable: org.visibility === 'public',
     head: toHex(org.rbac_head),
-    events: rows.map((r: Record<string, unknown>) => ({ seq: Number(r.seq), actor: r.actor_login, action: r.action, payload: r.payload, prevHash: toHex(r.prev_hash as Buffer),
+    events: rows.map((r: Record<string, unknown>) => ({ seq: Number(r.seq), actor: r.actor_login, action: r.action, payload: parseJson(r.payload), prevHash: toHex(r.prev_hash as Uint8Array),
       hash: toHex(r.hash as Buffer), arkivEntity: toHex(r.arkiv_entity as Buffer), arkivTx: toHex(r.arkiv_tx as Buffer), createdAt: r.created_at })),
   })
 })

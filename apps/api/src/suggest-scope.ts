@@ -3,7 +3,7 @@
 // git tree before it is shown to anyone: paths that do not exist are dropped, never invented.
 import { Hono } from 'hono'
 import { randomBytes } from 'node:crypto'
-import { sql, hex, toHex } from './db.ts'
+import { sql, hex, toHex, json, now } from './db.ts'
 import { authenticate } from './auth.ts'
 import { can, findRepo } from './perm.ts'
 import { git, repoPath, safeRef } from './gitrepo.ts'
@@ -170,7 +170,7 @@ suggestScope.post('/repos/:owner/:repo/issues/:number{[0-9]+}/suggest-scope', as
   if (!repo || !(await can(user, repo, 'read'))) return c.json({ error: 'not found' }, 404)
   if (!(await can(user, repo, 'maintain'))) return c.json({ error: 'requires maintain access' }, 403)
   const issue = await findIssue(repo, Number(c.req.param('number')))
-  if (!issue || issue.is_pr) return c.json({ error: 'issue not found' }, 404)
+  if (!issue || Number(issue.is_pr)) return c.json({ error: 'issue not found' }, 404)
 
   let b: { maxPaths?: unknown; ref?: unknown } = {}
   const text = await c.req.text()
@@ -182,8 +182,8 @@ suggestScope.post('/repos/:owner/:repo/issues/:number{[0-9]+}/suggest-scope', as
   if (typeof ref !== 'string' || !safeRef(ref)) return c.json({ error: 'bad ref' }, 400)
 
   if (!zgConfigured()) return c.json({ error: '0G Private Computer is not configured' }, 503)
-  const [rate] = await sql`SELECT count(*)::int AS n FROM scope_suggestions WHERE user_id = ${user.id} AND created_at > now() - interval '1 hour'`
-  if ((rate?.n ?? 0) >= SUGGEST_RATE_PER_HOUR) return c.json({ error: `rate limit: ${SUGGEST_RATE_PER_HOUR} scope suggestions per hour` }, 429)
+  const [rate] = await sql`SELECT count(*) AS n FROM scope_suggestions WHERE user_id = ${user.id} AND created_at > ${now(-3_600_000)}`
+  if (Number(rate?.n ?? 0) >= SUGGEST_RATE_PER_HOUR) return c.json({ error: `rate limit: ${SUGGEST_RATE_PER_HOUR} scope suggestions per hour` }, 429)
 
   const dir = repoPath(toHex(repo.dheet_repo_id)!)
   const listing = await listTree(dir, ref)
@@ -200,10 +200,10 @@ suggestScope.post('/repos/:owner/:repo/issues/:number{[0-9]+}/suggest-scope', as
 
   const record = async (a: { model: string; requestId: string | null; paths: SuggestedPath[] | null; error?: string }) => {
     await sql`INSERT INTO scope_suggestions (repo_id, issue_id, user_id, model, zg_request_id, paths, error)
-      VALUES (${repo.id}, ${issue.id}, ${user.id}, ${a.model}, ${a.requestId}, ${a.paths ? JSON.stringify(a.paths) : null}::text::jsonb, ${a.error ?? null})`
+      VALUES (${repo.id}, ${issue.id}, ${user.id}, ${a.model}, ${a.requestId}, ${a.paths ? json(a.paths) : null}, ${a.error ?? null})`
     await sql`INSERT INTO audit_log (actor_id, actor_wallet, action, target_type, target_id, metadata)
       VALUES (${user.id}, ${user.wallet ? hex(user.wallet) : null}, 'issue.suggest_scope', 'repo', ${repo.id},
-        ${JSON.stringify({ issue: Number(issue.number), pathCount: a.paths?.length ?? 0, model: a.model, requestId: a.requestId, ...(a.error ? { failed: true } : {}) })}::text::jsonb)`
+        ${json({ issue: Number(issue.number), pathCount: a.paths?.length ?? 0, model: a.model, requestId: a.requestId, ...(a.error ? { failed: true } : {}) })})`
   }
 
   let result: Awaited<ReturnType<ChatFn>>

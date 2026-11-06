@@ -1,12 +1,12 @@
 // GET /api/deployments, /api/deployments/latest: deployment history READ FROM ARKIV (dheet-activity-v1, kinds 'deploy' / 'attest').
-// Postgres (`deployments`, filled by the worker mirror) is used only when Arkiv is unreachable; the response says so in `source`.
+// The local SQLite cache (`deployments`, filled by the worker mirror) is used only when Arkiv is unreachable; the response says so in `source`.
 // Mount in index.ts:  import { deployments } from './deployments.ts'  ...  app.route('/api', deployments)
 import { Hono } from 'hono'
 import { generatePrivateKey } from 'viem/accounts'
 import { and, desc, eq } from '@arkiv-network/sdk/query'
 import { addr, key } from '@arkiv-network/sdk/schema'
 import { ArkivActivitySchema, createArkivConnection, sha256 } from '../../../packages/sdk/src/index.ts'
-import { sql, toHex } from './db.ts'
+import { sql, toHex, bool } from './db.ts'
 import { config } from './config.ts'
 import { chainScoped } from '../../../deployments/networks.ts'
 
@@ -31,7 +31,7 @@ export interface DeploymentItem {
   attestTx: string | null
   arkivEntity: string | null
 }
-interface Payload { items: DeploymentItem[]; source: 'arkiv' | 'postgres-fallback'; fetchedAt: string }
+interface Payload { items: DeploymentItem[]; source: 'arkiv' | 'sqlite-fallback'; fetchedAt: string }
 
 // Read-only connection: the key is a throwaway (reads never sign); the access key comes from env.
 let conn: ReturnType<typeof createArkivConnection> | undefined
@@ -73,12 +73,14 @@ async function fromArkiv(): Promise<DeploymentItem[]> {
   return [...byId.values()].filter((r) => r.bundleHash).sort((a, b) => b.releaseId - a.releaseId)
 }
 
-async function fromPostgres(): Promise<DeploymentItem[]> {
-  const rows = await sql`SELECT * FROM deployments WHERE chain_id = ${config.l1.chainId} ORDER BY id DESC LIMIT ${LIMIT}`
+async function fromCache(): Promise<DeploymentItem[]> {
+  // "commit" is reserved in SQLite and must stay quoted.
+  const rows = await sql`SELECT id, "commit", bundle_hash, url, published_at, publish_tx, attested, attested_ok, attested_at, attest_tx, arkiv_entity
+    FROM deployments WHERE chain_id = ${config.l1.chainId} ORDER BY id DESC LIMIT ${LIMIT}`
   return rows.map((r: Record<string, any>) => ({
     releaseId: Number(r.id), commit: toHex(r.commit), bundleHash: toHex(r.bundle_hash), url: r.url,
     publishedAt: r.published_at ? new Date(r.published_at).toISOString() : null, publishTx: toHex(r.publish_tx),
-    attested: Boolean(r.attested), ok: r.attested_ok ?? null, attestedAt: r.attested_at ? new Date(r.attested_at).toISOString() : null,
+    attested: bool(r.attested), ok: r.attested_ok === null || r.attested_ok === undefined ? null : bool(r.attested_ok), attestedAt: r.attested_at ? new Date(r.attested_at).toISOString() : null,
     attestTx: toHex(r.attest_tx), arkivEntity: toHex(r.arkiv_entity),
   }))
 }
@@ -90,8 +92,8 @@ async function load(): Promise<Payload> {
   try {
     value = { items: await fromArkiv(), source: 'arkiv', fetchedAt: new Date().toISOString() }
   } catch (e) {
-    console.error('deployments: Arkiv read failed, falling back to Postgres:', String(e).slice(0, 200))
-    value = { items: await fromPostgres(), source: 'postgres-fallback', fetchedAt: new Date().toISOString() }
+    console.error('deployments: Arkiv read failed, falling back to the local cache:', String(e).slice(0, 200))
+    value = { items: await fromCache(), source: 'sqlite-fallback', fetchedAt: new Date().toISOString() }
     cache = { at: Date.now() - TTL_MS + 5_000, value }        // retry Arkiv after 5 s
     return value
   }

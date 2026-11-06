@@ -11,3 +11,6 @@ infra/.env
 packages/contracts/out
 packages/contracts/cache
 .git
+infra/prod.env
+infra/.env.bee
+infra/.env.*

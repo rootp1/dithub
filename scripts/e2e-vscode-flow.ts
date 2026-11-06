@@ -212,14 +212,16 @@ const pi = await M.j(`/api/repos/${mLogin}/${pubName}/issues`, 'POST', { title: 
 ok((await D.j(`/api/repos/${mLogin}/${pubName}/issues/${pi.data.number}/suggest-scope`, 'POST', {})).status === 403, 'suggest-scope with read-only access -> 403')
 
 // ---------- audit (only when the DB is reachable from here) ----------
-if (process.env.DATABASE_URL && sug.status === 200) {
-  const { SQL } = await import('bun')
-  const db = new SQL(process.env.DATABASE_URL)
-  const [a] = await db`SELECT metadata FROM audit_log WHERE action = 'issue.suggest_scope' AND metadata->>'requestId' = ${sug.data.requestId} ORDER BY id DESC LIMIT 1`
+if (process.env.DATABASE_PATH && sug.status === 200) {
+  const { openDb, parseJson } = await import('../packages/db/src/index.ts')
+  const db = openDb(process.env.DATABASE_PATH)
+  const [raw] = await db`SELECT metadata FROM audit_log WHERE action = 'issue.suggest_scope' AND json_extract(metadata, '$.requestId') = ${sug.data.requestId} ORDER BY id DESC LIMIT 1`
+  const a = raw && { metadata: parseJson<Record<string, unknown>>(raw.metadata) }
   ok(a && Object.keys(a.metadata).sort().join(',') === 'issue,model,pathCount,requestId' && a.metadata.pathCount === sug.data.paths.length, 'audit_log row has issue/pathCount/model/requestId only (no paths, no issue text)')
-  const [row] = await db`SELECT paths FROM scope_suggestions WHERE zg_request_id = ${sug.data.requestId}`
+  const [prow] = await db`SELECT paths FROM scope_suggestions WHERE zg_request_id = ${sug.data.requestId}`
+  const row = prow && { paths: parseJson<unknown[]>(prow.paths) }
   ok(row && Array.isArray(row.paths) && row.paths.length === sug.data.paths.length, 'scope_suggestions row stores the validated paths')
   await db.close()
-} else skip('audit row checks (no DATABASE_URL or 0G failed)')
+} else skip('audit row checks (no DATABASE_PATH or 0G failed)')
 
 console.log(fails ? `\n${fails} check(s) FAILED` : '\nall checks passed')

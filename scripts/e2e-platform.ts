@@ -1,5 +1,5 @@
 // End-to-end check of phases 1-2 against a running API + worker. Keys come from the environment; nothing is printed.
-import { SQL } from 'bun'
+import { openDb } from '../packages/db/src/index.ts'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -9,7 +9,7 @@ import { privateKeyToAccount } from 'viem/accounts'
 
 const BASE = process.env.BASE_URL ?? 'http://localhost:3000'
 const host = new URL(BASE).host
-const sql = new SQL(process.env.DATABASE_URL!)
+const sql = openDb(process.env.DATABASE_PATH) // the SQLite file the API and worker share
 const ok = (cond: unknown, msg: string) => { console.log(`${cond ? 'PASS' : 'FAIL'}  ${msg}`); if (!cond) process.exitCode = 1 }
 
 class Client {
@@ -101,7 +101,7 @@ ok((await other.req(`/api/repos/${priv}/secret`)).status === 404, 'private org r
 ok((await other.req(`/api/orgs/${priv}/rbac-log`)).status === 404, 'private org RBAC log is hidden from non-members')
 await owner.req(`/api/orgs/${priv}/members/${bLogin}`, { method: 'PUT', body: '{"role":"member"}' })
 const privLog = await (await owner.req(`/api/orgs/${priv}/rbac-log`)).json() as { verifiable: boolean; events: any[] }
-ok(!privLog.verifiable && privLog.events.length >= 2, 'private org log is marked NOT verifiable (Postgres only)')
+ok(!privLog.verifiable && privLog.events.length >= 2, 'private org log is marked NOT verifiable (local SQLite only)')
 
 console.log('waiting for the worker: Arkiv mirror of public RBAC events and L1/Arkiv anchors (up to 8 min)…')
 const [pubOrg] = await sql`SELECT id FROM orgs WHERE login = ${pub}`
@@ -118,7 +118,7 @@ while (Date.now() < deadline) {
 }
 ok(mirrored >= log.events.length, `all ${log.events.length} public-org RBAC events are mirrored to Arkiv`)
 ok(total > 0 && anchored === total, `all ${total} pushed commits are anchored (Arkiv + L1)`)
-const [leak] = await sql`SELECT count(*)::int AS n FROM rbac_events WHERE org_id = ${privOrg.id} AND (arkiv_tx IS NOT NULL OR public)`
-const [queued] = await sql`SELECT count(*)::int AS n FROM outbox WHERE kind = 'rbac' AND (payload->>'eventId')::bigint IN (SELECT id FROM rbac_events WHERE org_id = ${privOrg.id})`
-ok(leak.n === 0 && queued.n === 0, 'private org events were never queued or sent on-chain')
+const [leak] = await sql`SELECT count(*) AS n FROM rbac_events WHERE org_id = ${privOrg.id} AND (arkiv_tx IS NOT NULL OR public = 1)`
+const [queued] = await sql`SELECT count(*) AS n FROM outbox WHERE kind = 'rbac' AND CAST(json_extract(payload, '$.eventId') AS INTEGER) IN (SELECT id FROM rbac_events WHERE org_id = ${privOrg.id})`
+ok(Number(leak.n) === 0 && Number(queued.n) === 0, 'private org events were never queued or sent on-chain')
 await sql.close()

@@ -52,7 +52,7 @@
 | Language | TypeScript everywhere, Bun for dev and scripts | Matches the existing SDK. |
 | Web | Next.js (App Router), React, Tailwind, shadcn/ui | Fast to build a GitHub-like UI. |
 | API | Hono (or Fastify) with Zod schemas, OpenAPI generated | Typed, small, fast. |
-| DB | PostgreSQL 16, Drizzle ORM, SQL migrations checked in | Relational data fits GitHub's model. |
+| DB | Superseded: one SQLite file (WAL) as a rebuildable local index; Arkiv holds metadata and Swarm holds repo bytes (see README "Storage" and `docs/swarm-arkiv-design.md`). Originally PostgreSQL 16. | No database server to run; the index can be rebuilt from Arkiv + Swarm. |
 | Cache / queue | Redis 7, BullMQ | Standard and simple. |
 | Object storage | S3 API: MinIO in dev, S3 or R2 in prod | Packs, LFS, attachments, archives. |
 | Search | Meilisearch (start), OpenSearch if scale demands | Easy ops. Code search via trigram indexes in Postgres for the MVP. |
@@ -72,7 +72,7 @@
 | `api` | custom | Stateless, horizontally scalable. |
 | `git` | custom (git + OpenSSH + hooks) | Smart HTTP and SSH. Volume `/data/repos`. |
 | `worker` | custom | BullMQ consumers. Scaled independently. |
-| `postgres` | `postgres:16` | Primary and replica in prod, WAL archiving. |
+| `bee` | `ethersphere/bee` | Swarm node (dev mode locally, light node in prod). Replaces the planned `postgres` service. |
 | `redis` | `redis:7` | AOF on, password required. |
 | `minio` | `minio/minio` | Dev only. Prod uses managed S3. |
 | `meilisearch` | `getmeili/meilisearch` | Master key from secrets. |

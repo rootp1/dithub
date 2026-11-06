@@ -160,7 +160,7 @@ try {
     await cli(who, ['logout'])
     check(!existsSync(join(who.env.DIT_CONFIG_DIR, 'credentials.json')), 'logout removes test credentials')
   }
-  console.log(`\nALL ${checks} CHECKS PASSED (installed binary, real API/Postgres/git${live ? ', live 0G' : ''})`)
+  console.log(`\nALL ${checks} CHECKS PASSED (installed binary, real API/SQLite/git${live ? ', live 0G' : ''})`)
 } catch (error) {
   console.error(safe(error instanceof Error ? error.message : String(error)))
   process.exitCode = 1

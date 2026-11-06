@@ -52,7 +52,7 @@ jobs:
           chmod 600 ~/.ssh/deploy_key
           ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts
 
-      - name: Sync sources to server (never touches infra/prod.env or server state)
+      - name: Sync sources to server (never touches infra/prod.env, infra/.env.bee or server state)
         env:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
         run: |

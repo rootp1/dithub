@@ -1,5 +1,5 @@
 // End-to-end check of phase 3 (issues, pull requests, task-scoped sessions) against a running API. Keys come from the environment; nothing is printed.
-import { SQL } from 'bun'
+import { openDb, parseJson } from '../packages/db/src/index.ts'
 import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -8,7 +8,7 @@ import { privateKeyToAccount } from 'viem/accounts'
 
 const BASE = process.env.BASE_URL ?? 'http://localhost:3000'
 const host = new URL(BASE).host
-const sql = new SQL(process.env.DATABASE_URL!)
+const sql = openDb(process.env.DATABASE_PATH) // the SQLite file the API uses
 const ok = (cond: unknown, msg: string) => { console.log(`${cond ? 'PASS' : 'FAIL'}  ${msg}`); if (!cond) process.exitCode = 1 }
 
 class Client {
@@ -241,8 +241,8 @@ const ev = await A.j(`/api/sessions/${sid}/events`)
 const kinds = new Set(ev.data.events.map((e: any) => e.kind))
 ok(['create', 'tree', 'blob', 'denied', 'commits', 'export', 'clone_denied', 'proposal', 'proposal_rejected'].every((k) => kinds.has(k)), `session audit log records reads, denials and proposals (${[...kinds].join(',')})`)
 ok((await B.j(`/api/sessions/${sid}/events`)).status === 404, 'developer cannot read the audit log')
-const rbac = await sql`SELECT metadata FROM audit_log WHERE action = 'session.create' AND metadata->>'session' = ${sid}`
-ok(rbac.length === 1 && !JSON.stringify(rbac[0].metadata).includes('src') && !JSON.stringify(rbac[0].metadata).includes('Secret task'), 'session.create in audit log without paths or issue text')
+const rbac = await sql`SELECT metadata FROM audit_log WHERE action = 'session.create' AND json_extract(metadata, '$.session') = ${sid}`
+ok(rbac.length === 1 && !JSON.stringify(parseJson(rbac[0].metadata)).includes('src') && !JSON.stringify(parseJson(rbac[0].metadata)).includes('Secret task'), 'session.create in audit log without paths or issue text')
 ok((await B.j('/api/sessions')).data.sessions.some((s: any) => s.id === sid), 'developer lists own sessions')
 // employee role
 const sn2 = (await A.j(`${S}/issues`, 'POST', { title: 'Another task' })).data.number
@@ -263,7 +263,7 @@ ok((await A.j(`/api/sessions/${msn.data.id}/revoke`, 'POST')).data.status === 'e
 ok((await B.j(`${S}/tree`, 'GET', undefined, { 'x-dheet-session': msn.data.id })).status === 403, 'revoked session no longer works')
 ok((await B.j(`/api/sessions/${emp.data.id}/end`, 'POST')).data.status === 'ended', 'developer ends own session')
 ok((await B.j(`${S}/tree`, 'GET', undefined, EH)).status === 403, 'ended session no longer works')
-await sql`UPDATE task_sessions SET expires_at = now() - interval '1 minute' WHERE id = ${sid}::uuid`
+await sql`UPDATE task_sessions SET expires_at = ${new Date(Date.now() - 60_000).toISOString()} WHERE id = ${sid}`
 ok((await B.j(`${S}/tree`, 'GET', undefined, H)).status === 403, 'expired session no longer works')
 ok((await B.j(`/api/sessions/${sid}`)).data.status === 'expired', 'expired session reported as expired')
 ok((await mk({ issueNumber: sn, login: bLogin, role: 'contractor', paths: ['src'] })).status === 201, 'new session possible after the old one expired')

@@ -34,7 +34,6 @@ export function encryptPrivateChunk(args: {
     repoId: args.repoId,
     keyEpoch: args.keyEpoch,
     nonce: bytesToHex(nonce),
-    plaintextHash: sha256(args.plaintext),
     ciphertextHash: sha256(ciphertext),
     ciphertext,
   }
@@ -43,11 +42,10 @@ export function encryptPrivateChunk(args: {
 export function decryptPrivateChunk(envelope: PrivateChunkEnvelope, key: Uint8Array): Uint8Array {
   assertKey(key)
   if (sha256(envelope.ciphertext) !== envelope.ciphertextHash) throw new Error('Ciphertext hash mismatch')
-  const plaintext = xchacha20poly1305(
+  // Integrity comes from the AEAD tag; no plaintext hash is stored (it would let anyone confirm a guessed plaintext).
+  return xchacha20poly1305(
     key,
     hexToBytes(envelope.nonce),
     associatedData(envelope.repoId, envelope.keyEpoch),
   ).decrypt(envelope.ciphertext)
-  if (sha256(plaintext) !== envelope.plaintextHash) throw new Error('Plaintext hash mismatch')
-  return plaintext
 }

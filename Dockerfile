@@ -1,6 +1,6 @@
-FROM oven/bun:1-debian AS base
+FROM oven/bun:1.4.4-debian AS base
 RUN apt-get update && apt-get install -y --no-install-recommends git curl ca-certificates coreutils \
-    && rm -rf /var/lib/apt/lists/* && mkdir -p /data/repos /data/worker && chown -R bun:bun /data
+    && rm -rf /var/lib/apt/lists/* && mkdir -p /data/repos /data/worker /data/db && chown -R bun:bun /data
 WORKDIR /app
 COPY package.json bun.lock tsconfig.json ./
 COPY apps/api/package.json apps/api/package.json
@@ -18,10 +18,11 @@ COPY apps apps
 COPY packages/sdk packages/sdk
 COPY packages/db packages/db
 COPY deployments deployments
+COPY scripts/pg-to-sqlite.ts scripts/pg-to-sqlite.ts
 ARG GIT_COMMIT=dev
 ARG L1_NETWORK=base
 RUN GIT_COMMIT=$GIT_COMMIT L1_NETWORK=$L1_NETWORK bun apps/web/build.ts
-ENV NODE_ENV=production REPOS_DIR=/data/repos WORKER_DIR=/data/worker
+ENV NODE_ENV=production REPOS_DIR=/data/repos WORKER_DIR=/data/worker DATABASE_PATH=/data/db/dithub.sqlite
 USER bun
 EXPOSE 3000
 CMD ["bun", "apps/api/src/index.ts"]

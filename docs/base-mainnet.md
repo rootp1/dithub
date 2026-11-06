@@ -59,14 +59,50 @@ Fill `deployments/base.json` from `broadcast/Deploy.s.sol/8453/run-latest.json`,
 
 `deployBlock` is where the worker's deployment mirror starts scanning; use the DeployRegistry receipt's block.
 
-## 4. Cut over (do these together)
+## 4. Move the database off Postgres (once, if the server still runs it)
+
+This release replaces Postgres with one SQLite file on the `db` volume and adds a Bee node. Copy the data first, while the old
+Postgres container is still running. The new compose file no longer defines Postgres, so its container is left running as an
+orphan on the same network until you remove it.
+
+1. Pause the `deploy` workflow (disable it in GitHub, or skip pushes to `main`) so nothing restarts the stack halfway through.
+2. Add the new settings on the server:
+   - In `infra/prod.env`, add `SESSION_SECRET` (`openssl rand -hex 32`), `DITHUB_DEVICE_KEY` (`openssl rand -hex 32`, keep a copy offline:
+     without it the sealed private-repo keys cannot be opened) and `BEE_POSTAGE_BATCH_ID` (bought in the next bullet).
+   - Copy `infra/bee.env.example` to `infra/.env.bee` and fill it in.
+   - Start the node alone: `docker compose -f infra/docker-compose.prod.yml up -d bee`. Its logs print the node wallet address. Fund it on
+     Gnosis Chain with xDAI (gas) and xBZZ, then buy a batch as described in README "Swarm postage". You can read the Bee API with
+     `docker run --rm --network dheet-prod_default curlimages/curl:8.11.1 -s http://bee:1633/wallet`, because the api image is not
+     built yet. Light nodes deploy a chequebook on first start, which takes a few minutes after funding.
+   - Delete `DATABASE_URL` only after step 6. The `POSTGRES_*` values are needed until then.
+3. Sync the new sources (rsync as in `deploy.yml`, or `git pull` on the server). Then stop the writers:
+   `docker compose -f infra/docker-compose.prod.yml stop api worker`.
+4. Build and copy. The run container joins the project network, where the old `postgres` service name still resolves:
+   ```sh
+   set -a; . infra/prod.env; set +a        # POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
+   docker compose -f infra/docker-compose.prod.yml build api
+   docker compose -f infra/docker-compose.prod.yml run --rm --no-deps \
+     -e DATABASE_URL="postgres://$POSTGRES_USER:$POSTGRES_PASSWORD@postgres:5432/$POSTGRES_DB" \
+     api bun scripts/pg-to-sqlite.ts
+   ```
+   The script applies the SQLite schema, then copies every table with these conversions: bytea to BLOB, jsonb to JSON text, arrays to
+   JSON, bool to 0/1, timestamptz to ISO-8601. It skips `sessions` (users sign in again) and `ens_seats`. It prints row counts per table
+   and exits 1 if any table ended up with fewer rows or a foreign key does not resolve. Re-running it is safe: rows are upserted.
+5. `docker compose -f infra/docker-compose.prod.yml up -d --build`. Check `/api/health`, sign in, open a private repo, and push to a test
+   repo. The worker log should show `swarm: push ... pack ...`.
+6. Remove Postgres: `docker compose -f infra/docker-compose.prod.yml up -d --remove-orphans`. Keep the `dheet-prod_pgdata` volume as a
+   backup until you no longer need a rollback. Remove `DATABASE_URL` and `POSTGRES_*` from `infra/prod.env`, then re-enable `deploy`.
+
+Rollback before step 6: check out the previous release and run `up -d --build`. Postgres still has all data up to step 3.
+
+## 5. Cut over to Base (do these together)
 
 1. Server `infra/prod.env`: set `L1_NETWORK=base` and `L1_RPC_URL=<Base RPC>`; delete `L1_CHAIN_ID` and
    `REF_REGISTRY` (the RefRegistry now comes from `deployments/base.json`). The worker refuses to start if the RPC
    serves a different chain than `L1_NETWORK`.
 2. GitHub: repo variable `L1_NETWORK=base`; secret `BASE_RPC_URL`. Make sure `DHEET_DEPLOYER_KEY` is the funded key.
-3. Push to `main`. CI builds the web bundle for Base, runs migrations (`0011_deployments_chain.sql` keys the deployment
-   mirror by chain), restarts, publishes release #1 to the Base DeployRegistry and verifies the live site against it.
+3. Push to `main`. CI builds the web bundle for Base. On start the API applies the SQLite schema and migrations (`deployments`
+   is keyed by `(chain_id, id)`), then restarts, publishes release #1 to the Base DeployRegistry and verifies the live site against it.
 4. Check: `dit verify site` (defaults to Base), the Deployments page "Verify this site" panel, and push to a public
    repo and confirm `dit verify commit HEAD` shows a Base receipt.
 

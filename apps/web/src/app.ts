@@ -128,11 +128,38 @@ async function settings() {
   app.innerHTML = `<h1>Account</h1><div class="card"><p>Wallet <code>${esc(me.wallet)}</code></p>
     <div class="row"><input id="login" value="${esc(me.login)}"><button id="save">Set username</button></div><p id="m" class="muted"></p></div>
     <div class="card"><h2>Personal access token</h2><p class="muted">Use it as the password when you <code>git push</code> over HTTPS.</p>
-    <button id="tok">Create token</button><pre id="t" hidden></pre></div>`
+    <button id="tok">Create token</button><pre id="t" hidden></pre></div>
+    <div class="card"><h2>Device keys</h2><p class="muted">Device keys receive the encryption keys of your private repositories. <a href="/settings/device-keys">Manage device keys</a></p></div>`
   document.getElementById('save')!.onclick = async () => { try { const r = await api('/api/me', { method: 'PATCH', body: JSON.stringify({ login: (document.getElementById('login') as HTMLInputElement).value }) }); me!.login = r.login; renderNav(); document.getElementById('m')!.textContent = 'Saved.' } catch (e) { document.getElementById('m')!.textContent = (e as Error).message } }
   document.getElementById('tok')!.onclick = async () => { const r = await api('/api/tokens', { method: 'POST', body: JSON.stringify({ name: 'web' }) }); const t = document.getElementById('t')!; t.hidden = false; t.textContent = `${r.token}\n(shown once; copy it now)` }
 }
 
+/** /settings/device-keys[?publicKey=0x..]: list registered keys; sign the statement for a new one (printed by `dit keys init`). */
+async function deviceKeysPage(params: URLSearchParams) {
+  if (!me) { app.innerHTML = '<div class="card">Connect your wallet first.</div>'; return }
+  const { deviceKeys } = await api<{ deviceKeys: { publicKey: string; createdAt: string }[] }>('/api/user/device-keys')
+  const pk = (params.get('publicKey') ?? '').trim()
+  const known = deviceKeys.some((d) => d.publicKey.toLowerCase() === pk.toLowerCase())
+  app.innerHTML = `<h1>Device keys</h1>
+    <div class="card"><h2>Registered</h2><div class="list">${deviceKeys.map((d) => `<div class="row"><code class="grow">${esc(d.publicKey)}</code><span class="muted">${esc(ago(d.createdAt))}</span></div>`).join('') || '<p class="muted">None yet. Run <code>dit keys init</code> on a device.</p>'}</div></div>
+    <div class="card"><h2>Register a device key</h2><p class="muted">Paste the public key printed by <code>dit keys init</code>, then sign the statement with wallet <code>${esc(me.wallet)}</code>.</p>
+    <div class="row"><input id="dk" class="grow mono" placeholder="0x... (32-byte X25519 public key)" value="${esc(pk)}"><button id="dks">Sign and register</button></div>
+    <pre id="dkst" hidden></pre><p id="dkm" class="muted">${known ? 'This key is already registered.' : ''}</p></div>`
+  $('dks').onclick = async () => {
+    try {
+      if (!eth) throw new Error('No wallet found. Install MetaMask or another EIP-1193 wallet.')
+      const publicKey = val('dk')
+      const s = await api<{ wallet: string; statement: string }>(`/api/user/device-keys/statement?publicKey=${encodeURIComponent(publicKey)}`)
+      const st = $('dkst'); st.hidden = false; st.textContent = s.statement
+      const accounts = ((await eth.request({ method: 'eth_requestAccounts' })) as string[]).map((a) => a.toLowerCase())
+      if (!accounts.includes(s.wallet.toLowerCase())) throw new Error(`Switch your wallet to ${s.wallet} (the account you signed in with).`)
+      const signature = (await eth.request({ method: 'personal_sign', params: [s.statement, s.wallet] })) as string
+      const r = await post<{ grants: number; existing?: boolean }>('/api/user/device-keys', { publicKey, signature })
+      say('dkm', r.existing ? 'This key was already registered.' : `Registered. ${r.grants} private repository key grant(s) queued.`, false)
+      setTimeout(() => nav2('/settings/device-keys'), 1500)
+    } catch (e) { say('dkm', (e as Error).message) }
+  }
+}
 
 const val = (id: string) => (document.getElementById(id) as HTMLInputElement).value.trim()
 const act = (id: string, fn: () => Promise<unknown>) => { document.getElementById(id)!.onclick = async () => { try { await fn(); render() } catch (e) { alert((e as Error).message) } } }
@@ -503,7 +530,7 @@ async function deploymentsPage() {
   app.innerHTML = `<h1>Deployments</h1>
     <section class="card verify" aria-labelledby="vh"><h2 id="vh">Verify this site</h2><p>Prove the frontend you are running matches the release published on-chain. Everything below runs in your browser: it hashes the files it was served, recomputes the bundle hash, and reads the DeployRegistry on ${NETWORK.label} directly over JSON-RPC.${ATTESTATIONS ? '' : ' Chainlink attestations are not live on this chain yet.'}</p>
       <p><button id="vb">Run verification</button></p><div id="vres" aria-live="polite"></div></section>
-    <div class="card"><h2>Releases</h2><p class="muted">Data source: ${r.source === 'arkiv' ? '<span class="chip ok">Arkiv</span>' : r.source ? '<span class="chip warn">Postgres fallback (Arkiv unreachable)</span>' : '<span class="chip bad">unavailable</span>'}${r.error ? ` <span class="err">${esc(r.error)}</span>` : ''}</p>
+    <div class="card"><h2>Releases</h2><p class="muted">Data source: ${r.source === 'arkiv' ? '<span class="chip ok">Arkiv</span>' : r.source ? '<span class="chip warn">SQLite fallback (Arkiv unreachable)</span>' : '<span class="chip bad">unavailable</span>'}${r.error ? ` <span class="err">${esc(r.error)}</span>` : ''}</p>
       <div class="list">${items.map((d) => `<div><div class="row"><b>Release #${esc(d.releaseId)}</b>${badge(d)}<span class="muted">${esc(d.publishedAt ?? '')}</span></div>
         <div class="muted mono">commit ${esc(d.commit)}<br>bundleHash ${esc(d.bundleHash)}</div>
         <div>${typeof d.url === 'string' && /^https:\/\//.test(d.url) ? `<a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.url)}</a>` : esc(d.url ?? '')} ${tx('publish tx', d.publishTx)} ${tx('attest tx', d.attestTx)} ${d.arkivEntity ? `<span class="chip mono" title="Arkiv entity">Arkiv ${esc(short(d.arkivEntity))}</span>` : ''}</div></div>`).join('') || '<p class="muted">No releases yet.</p>'}</div></div>`
@@ -546,6 +573,7 @@ async function render() {
   try {
     if (parts.length === 0) await home()
     else if (parts[0] === 'new') newRepo()
+    else if (parts[0] === 'settings' && parts[1] === 'device-keys') await deviceKeysPage(url.searchParams)
     else if (parts[0] === 'settings') await settings()
     else if (parts[0] === 'orgs' && parts[1] === 'new') newOrg()
     else if (parts[0] === 'orgs' && parts[1]) await orgPage(parts[1])

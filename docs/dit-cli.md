@@ -91,7 +91,7 @@ Global: `--host URL`, `--json`, `-R/--repo owner/repo`, `-h/--help`. `dit <comma
 | `repo list [--owner x]`, `repo view [owner/repo]` | list / show (view infers from `origin`) |
 | `repo ls [path] [--ref r]`, `repo cat <path> [--ref r]`, `repo commits [-L n]`, `repo ledger` | browse tree / file / commits (with anchor status and Sepolia + Arkiv tx) / ledger (L1 anchors, Arkiv entities with expiry blocks) without cloning; normal permissions, no session header |
 | `name resolve <owner/repo>` | repo id, claimant and Arkiv name entity |
-| `deployments [list\|latest]` | release history from Arkiv (`source` says `arkiv` or `postgres-fallback`): release, commit, bundleHash, attestation, tx hashes |
+| `deployments [list\|latest]` | release history from Arkiv (`source` says `arkiv` or `sqlite-fallback`): release, commit, bundleHash, attestation, tx hashes |
 | `label list\|create <name> [--color hex] [-d text]\|edit <name>\|delete <name>` | labels |
 | `repo collaborators list\|add <login> [-p perm]\|remove <login>`, `repo grant-team <team> <perm>` | access |
 | `repo delete` | not available: the API has no delete endpoint |

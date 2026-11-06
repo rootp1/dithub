@@ -3,8 +3,8 @@ import { serveStatic } from 'hono/bun'
 import { logger } from 'hono/logger'
 import { secureHeaders } from 'hono/secure-headers'
 import { config, requireConfig } from './config.ts'
-import { sql, hex, toHex } from './db.ts'
-import { authenticate, createToken, issueNonce, logout, verifySiwe } from './auth.ts'
+import { sql, hex, toHex, json, now } from './db.ts'
+import { authenticate, createToken, issueNonce, logout, logoutEverywhere, verifySiwe } from './auth.ts'
 import { can, findRepo, type RepoRow } from './perm.ts'
 import { deriveRepoId, git, initBare, installHooks, repoPath, runHttpBackend, safePath, safeRef } from './gitrepo.ts'
 import { internal } from './internal.ts'
@@ -17,6 +17,7 @@ import { cliAuth } from './cli-auth.ts'
 import { sessions, resolveAccess, scopeGuard, filterTree, scopedCommits, logSessionEvent } from './sessions.ts'
 import { suggestScope } from './suggest-scope.ts'
 import { tasks } from './tasks.ts'
+import { keys, initRepoKey } from './keys.ts'
 
 requireConfig()
 // Keep every bare repo's hooks in step with this release.
@@ -48,6 +49,7 @@ app.post('/api/auth/verify', async (c) => {
   catch (e) { return c.json({ error: (e as Error).message }, 401) }
 })
 app.post('/api/auth/logout', async (c) => { await logout(c); return c.json({ ok: true }) })
+app.post('/api/auth/logout-everywhere', async (c) => c.json({ ok: await logoutEverywhere(c) }))
 app.get('/api/me', async (c) => {
   const user = await authenticate(c)
   return user ? c.json({ user }) : c.json({ user: null })
@@ -68,18 +70,19 @@ app.patch('/api/me', async (c) => {
   if (login === user.login) return c.json({ ok: true, login })
   try {
     await sql.begin(async (tx) => {
-      await tx`UPDATE users SET login = ${login}, updated_at = now() WHERE id = ${user.id}`
+      await tx`UPDATE users SET login = ${login}, updated_at = ${now()} WHERE id = ${user.id}`
       // Repo names are keyed as "<owner>/<repo>" in the name registry: re-key this user's claims and queue fresh Arkiv claims
       // (Arkiv entities are read-only, so the old claim stays as history and the new name gets its own entity).
-      const moved = await tx`UPDATE name_claims nc SET name = ${login} || '/' || r.name, arkiv_entity = NULL
-        FROM repos r WHERE nc.dheet_repo_id = r.dheet_repo_id AND r.owner_kind = 'user' AND r.owner_id = ${user.id}
-        RETURNING r.id AS repo_id, r.name AS repo_name, encode(nc.dheet_repo_id, 'hex') AS repo_hex`
+      // (SQLite's RETURNING cannot see joined tables, so pick the claims first and re-key them one by one.)
+      const moved = await tx`SELECT r.id AS repo_id, r.name AS repo_name, r.visibility, lower(hex(nc.dheet_repo_id)) AS repo_hex
+        FROM name_claims nc JOIN repos r ON nc.dheet_repo_id = r.dheet_repo_id WHERE r.owner_kind = 'user' AND r.owner_id = ${user.id}`
       for (const m of moved) {
-        await tx`INSERT INTO outbox (aggregate_type, aggregate_id, kind, payload)
-          VALUES ('repo', ${m.repo_id}, 'name_claim', ${JSON.stringify({ repoId: `0x${m.repo_hex}`, name: `${login}/${m.repo_name}` })}::text::jsonb)`
+        await tx`UPDATE name_claims SET name = ${`${login}/${m.repo_name}`}, arkiv_entity = NULL WHERE dheet_repo_id = ${hex(m.repo_hex)}`
+        if (m.visibility === 'public') await tx`INSERT INTO outbox (aggregate_type, aggregate_id, kind, payload)
+          VALUES ('repo', ${m.repo_id}, 'name_claim', ${json({ repoId: `0x${m.repo_hex}`, name: `${login}/${m.repo_name}` })})`
       }
       await tx`INSERT INTO audit_log (actor_id, action, target_type, target_id, metadata)
-        VALUES (${user.id}, 'user.rename', 'user', ${user.id}, ${JSON.stringify({ from: user.login, to: login, repos: moved.length })}::text::jsonb)`
+        VALUES (${user.id}, 'user.rename', 'user', ${user.id}, ${json({ from: user.login, to: login, repos: moved.length })})`
     })
   } catch { return c.json({ error: 'name is taken' }, 409) }
   return c.json({ ok: true, login })
@@ -95,6 +98,7 @@ app.route('/api', deployments)
 app.route('/', cliAuth)
 app.route('/api', suggestScope)
 app.route('/api', tasks)
+app.route('/api', keys)
 
 // ---------- repos ----------
 const nameOk = (n: string) => /^[A-Za-z0-9._-]{1,100}$/.test(n) && n !== '.' && n !== '..' && !n.endsWith('.git')
@@ -113,15 +117,19 @@ app.post('/api/repos', async (c) => {
     if (o.visibility === 'private') b.visibility = 'private'
   }
   if (await findRepo(ownerLogin, b.name)) return c.json({ error: 'repository already exists' }, 409)
+  const visibility = b.visibility === 'private' ? 'private' : 'public'
   const repoId = deriveRepoId(ownerLogin, b.name)
   await initBare(repoId, 'main')
   const [repo] = await sql.begin(async (tx) => {
     const [r] = await tx`INSERT INTO repos (dheet_repo_id, owner_kind, owner_id, name, description, visibility)
-      VALUES (${hex(repoId)}, ${ownerKind}, ${ownerId}, ${b.name}, ${b.description ?? null}, ${b.visibility ?? 'public'}) RETURNING id`
+      VALUES (${hex(repoId)}, ${ownerKind}, ${ownerId}, ${b.name}, ${b.description ?? null}, ${visibility}) RETURNING id`
     await tx`INSERT INTO repo_storage (repo_id, disk_path, s3_prefix) VALUES (${r.id}, ${repoPath(repoId)}, ${`repos/${repoId.slice(2)}`})`
     await tx`INSERT INTO name_claims (name, dheet_repo_id, claimant) VALUES (${`${ownerLogin}/${b.name}`}, ${hex(repoId)}, ${hex(user.wallet ?? '0x' + '00'.repeat(20))})`
-    await tx`INSERT INTO outbox (aggregate_type, aggregate_id, kind, payload)
-      VALUES ('repo', ${r.id}, 'name_claim', ${JSON.stringify({ repoId, name: `${ownerLogin}/${b.name}` })}::text::jsonb)`
+    // Private repo names never leave SQLite: only public repos get an Arkiv name claim.
+    if (visibility === 'public') await tx`INSERT INTO outbox (aggregate_type, aggregate_id, kind, payload)
+      VALUES ('repo', ${r.id}, 'name_claim', ${json({ repoId, name: `${ownerLogin}/${b.name}` })})`
+    // Private repos get their content key (epoch 0) sealed to the server and granted to every member's device keys.
+    if (visibility === 'private') await initRepoKey(tx, { id: Number(r.id), dheetRepoId: repoId.toLowerCase() })
     return [r]
   })
   return c.json({ id: Number(repo.id), repoId, owner: ownerLogin, name: b.name, cloneUrl: `${config.publicUrl}/git/${ownerLogin}/${b.name}` }, 201)
@@ -158,7 +166,7 @@ app.get('/api/repos/:owner/:repo', async (c) => {
     owner: repo.owner_login, name: repo.name, description: repo.description, visibility: repo.visibility,
     defaultBranch: repo.default_branch, repoId: toHex(repo.dheet_repo_id), canWrite: scope ? false : await can(user, repo, 'write'), session: scope ? { id: scope.id, role: scope.role, ref: scope.ref, issueNumber: scope.issueNumber, expiresAt: scope.expiresAt } : null,
     cloneUrl: `${config.publicUrl}/git/${repo.owner_login}/${repo.name}`,
-    refs: refs.map((r: { name: string; oid: Buffer }) => ({ name: r.name, oid: toHex(r.oid) })),
+    refs: refs.map((r: { name: string; oid: Uint8Array }) => ({ name: r.name, oid: toHex(r.oid) })),
   })
 })
 
@@ -212,8 +220,8 @@ app.get('/api/repos/:owner/:repo/commits', async (c) => {
     FROM commits c LEFT JOIN commit_anchors a ON a.repo_id = c.repo_id AND a.commit_oid = c.oid
     WHERE c.repo_id = ${repo.id} ORDER BY c.committed_at DESC LIMIT 100`
   return c.json({ commits: rows.map((r: Record<string, unknown>) => ({
-    oid: toHex(r.oid as Buffer), subject: r.subject, author: r.author_name, email: r.author_email, committedAt: r.committed_at,
-    anchor: { status: r.status ?? 'none', ref: r.ref_name, l1ChainId: r.l1_chain_id, l1Tx: toHex(r.l1_tx as Buffer), arkivTx: toHex(r.arkiv_tx as Buffer), arkivEntity: toHex(r.arkiv_entity as Buffer) },
+    oid: toHex(r.oid as Uint8Array), subject: r.subject, author: r.author_name, email: r.author_email, committedAt: r.committed_at,
+    anchor: { status: r.status ?? 'none', ref: r.ref_name, l1ChainId: r.l1_chain_id, l1Tx: toHex(r.l1_tx as Uint8Array), arkivTx: toHex(r.arkiv_tx as Uint8Array), arkivEntity: toHex(r.arkiv_entity as Uint8Array) },
   })) })
 })
 
@@ -221,15 +229,17 @@ app.get('/api/repos/:owner/:repo/ledger', async (c) => {
   const { repo, scope, denied } = await loadRepo(c)
   if (!repo) return denied ? c.json({ error: denied.error }, denied.status) : c.json({ error: 'not found' }, 404)
   if (scope) { await logSessionEvent(scope.id, scope.userId, 'denied', { kind: 'ledger' }); return c.json({ error: 'not available in a scoped session' }, 403) }
-  const anchors = await sql`SELECT ref_name, chain_id, encode(contract,'hex') AS contract, encode(tx_hash,'hex') AS tx, ref_sequence, encode(ref_root,'hex') AS root
+  const anchors = await sql`SELECT ref_name, chain_id, lower(hex(contract)) AS contract, lower(hex(tx_hash)) AS tx, ref_sequence, lower(hex(ref_root)) AS root
     FROM chain_anchors WHERE repo_id = ${repo.id} ORDER BY id DESC LIMIT 50`
-  const entities = await sql`SELECT schema, encode(entity_key,'hex') AS entity, encode(tx_hash,'hex') AS tx, expires_at_block
+  const entities = await sql`SELECT schema, lower(hex(entity_key)) AS entity, lower(hex(tx_hash)) AS tx, expires_at_block
     FROM arkiv_entities WHERE repo_id = ${repo.id} ORDER BY created_at DESC LIMIT 100`
-  return c.json({ anchors, entities })
+  return c.json({ anchors, entities: entities.map((e: Record<string, unknown>) => ({ ...e, expires_at_block: Number(e.expires_at_block) })) })
 })
 
 app.get('/api/names/:owner/:repo', async (c) => {
-  const [row] = await sql`SELECT dheet_repo_id, claimant, arkiv_entity FROM name_claims WHERE name = ${`${c.req.param('owner')}/${c.req.param('repo')}`}`
+  // Private repos are not in the public name registry: answer 404 so this endpoint does not reveal they exist.
+  const [row] = await sql`SELECT nc.dheet_repo_id, nc.claimant, nc.arkiv_entity FROM name_claims nc JOIN repos r ON r.dheet_repo_id = nc.dheet_repo_id
+    WHERE nc.name = ${`${c.req.param('owner')}/${c.req.param('repo')}`} AND r.visibility = 'public' AND r.deleted_at IS NULL`
   return row ? c.json({ repoId: toHex(row.dheet_repo_id), claimant: toHex(row.claimant), arkivEntity: toHex(row.arkiv_entity) }) : c.json({ error: 'unknown' }, 404)
 })
 

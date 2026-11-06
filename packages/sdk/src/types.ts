@@ -88,7 +88,6 @@ export interface PrivateChunkEnvelope {
   repoId: Hex
   keyEpoch: number
   nonce: Hex
-  plaintextHash: Hex
   ciphertextHash: Hex
   ciphertext: Uint8Array
 }

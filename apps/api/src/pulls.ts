@@ -1,5 +1,5 @@
 import { Hono, type Context } from 'hono'
-import { sql, hex, toHex } from './db.ts'
+import { sql, hex, toHex, bool, now, parseJson } from './db.ts'
 import type { AuthUser } from './auth.ts'
 import { can, type RepoRow } from './perm.ts'
 import { listCommits, repoPath, safePath, safeRef } from './gitrepo.ts'
@@ -81,8 +81,8 @@ export async function createPullRequest(a: { repo: RepoRow; user: AuthUser; titl
   const created = await sql.begin(async (tx) => {
     const issue = await allocateIssue(tx, { repoId: Number(a.repo.id), authorId: a.user.id, title: a.title, body: a.body })
     await tx`INSERT INTO pull_requests (issue_id, repo_id, head_ref, head_oid, base_ref, base_oid, merge_base_oid, draft, mergeable, additions, deletions, changed_files, session_id)
-      VALUES (${issue.id}, ${a.repo.id}, ${a.head}, ${hex(headOid)}, ${a.base}, ${hex(baseOid)}, ${hex(mb)}, ${a.draft ?? false}, ${mt.clean === null ? 'unknown' : mt.clean ? 'clean' : 'conflict'},
-        ${sum('additions')}, ${sum('deletions')}, ${files.length}, ${a.sessionId ?? null}::uuid)`
+      VALUES (${issue.id}, ${a.repo.id}, ${a.head}, ${hex(headOid)}, ${a.base}, ${hex(baseOid)}, ${hex(mb)}, ${a.draft ? 1 : 0}, ${mt.clean === null ? 'unknown' : mt.clean ? 'clean' : 'conflict'},
+        ${sum('additions')}, ${sum('deletions')}, ${files.length}, ${a.sessionId?.toLowerCase() ?? null})`
     await issueEvent(tx, issue.id, a.user.id, 'opened', { head: a.head, base: a.base })
     await activity(tx, Number(a.repo.id), a.user.id, 'pr.opened', { number: issue.number, head: a.head, base: a.base })
     return issue
@@ -123,15 +123,16 @@ async function protectionFor(repoId: number, base: string) {
 
 /** Latest submitted review per reviewer. Approvals only count on the current head and from users with write access. */
 async function reviewState(repo: RepoRow, p: Record<string, any>) {
-  const rows = await sql`SELECT DISTINCT ON (r.author_id) r.author_id, r.state, r.commit_oid, u.login, u.is_site_admin
-    FROM reviews r JOIN users u ON u.id = r.author_id WHERE r.pr_issue_id = ${p.issue_id} AND r.state IN ('approved','changes_requested','commented','dismissed')
-    ORDER BY r.author_id, r.id DESC`
+  const rows = await sql`SELECT author_id, state, commit_oid, login, is_site_admin FROM (
+      SELECT r.author_id, r.state, r.commit_oid, u.login, u.is_site_admin, row_number() OVER (PARTITION BY r.author_id ORDER BY r.id DESC) AS rn
+      FROM reviews r JOIN users u ON u.id = r.author_id WHERE r.pr_issue_id = ${p.issue_id} AND r.state IN ('approved','changes_requested','commented','dismissed'))
+    WHERE rn = 1 ORDER BY author_id`
   const approvals: string[] = [], changes: string[] = []
   for (const r of rows) {
     if (Number(r.author_id) === Number(p.author_id)) continue
     if (r.state === 'changes_requested') changes.push(r.login)
     if (r.state === 'approved' && Buffer.compare(Buffer.from(r.commit_oid), Buffer.from(p.head_oid)) === 0) {
-      const reviewer: AuthUser = { id: Number(r.author_id), login: r.login, wallet: null, isAdmin: r.is_site_admin }
+      const reviewer: AuthUser = { id: Number(r.author_id), login: r.login, wallet: null, isAdmin: bool(r.is_site_admin) }
       if (await can(reviewer, repo, 'write')) approvals.push(r.login)
     }
   }
@@ -144,12 +145,12 @@ async function prView(repo: RepoRow, p: Record<string, any>) {
   const rule = await protectionFor(Number(repo.id), p.base_ref)
   const rs = await reviewState(repo, p)
   return {
-    ...base, state: p.state as 'open' | 'closed' | 'merged', draft: p.draft, head: p.head_ref, base: p.base_ref,
+    ...base, state: p.state as 'open' | 'closed' | 'merged', draft: bool(p.draft), head: p.head_ref, base: p.base_ref,
     headOid: toHex(p.head_oid), baseOid: toHex(p.base_oid), mergeBaseOid: toHex(p.merge_base_oid), mergeable: p.mergeable,
     mergeMethod: p.merge_method, mergedAt: p.merged_at, mergeCommitOid: toHex(p.merge_commit_oid),
     additions: p.additions, deletions: p.deletions, changedFiles: p.changed_files, fromSession: !!p.session_id,
     reviews: { approvals: rs.approvals, changesRequested: rs.changesRequested, requiredApprovals: rule ? Number(rule.required_approvals) : 0 },
-    protection: rule ? { pattern: rule.pattern, requireStatusChecks: rule.require_status_checks } : null,
+    protection: rule ? { pattern: rule.pattern, requireStatusChecks: parseJson<string[]>(rule.require_status_checks) ?? [] } : null,
   }
 }
 
@@ -180,9 +181,9 @@ pulls.get('/repos/:owner/:repo/pulls', async (c) => {
   const perPage = Math.min(100, Math.max(1, Number(c.req.query('per_page')) || 30)), page = Math.max(1, Number(c.req.query('page')) || 1)
   const rows = await sql`SELECT p.*, i.number, i.title, u.login AS author_login, i.updated_at, i.created_at FROM pull_requests p JOIN issues i ON i.id = p.issue_id LEFT JOIN users u ON u.id = i.author_id
     WHERE p.repo_id = ${r.repo.id} AND (${state} = 'all' OR p.state = ${state}) ORDER BY i.number DESC LIMIT ${perPage} OFFSET ${(page - 1) * perPage}`
-  const [t] = await sql`SELECT count(*)::int AS n FROM pull_requests p WHERE p.repo_id = ${r.repo.id} AND (${state} = 'all' OR p.state = ${state})`
-  return c.json({ total: t.n, page, perPage, pulls: rows.map((p: Record<string, any>) => ({
-    number: Number(p.number), title: p.title, state: p.state, draft: p.draft, author: p.author_login, head: p.head_ref, base: p.base_ref,
+  const [t] = await sql`SELECT count(*) AS n FROM pull_requests p WHERE p.repo_id = ${r.repo.id} AND (${state} = 'all' OR p.state = ${state})`
+  return c.json({ total: Number(t.n), page, perPage, pulls: rows.map((p: Record<string, any>) => ({
+    number: Number(p.number), title: p.title, state: p.state, draft: bool(p.draft), author: p.author_login, head: p.head_ref, base: p.base_ref,
     mergeable: p.mergeable, additions: p.additions, deletions: p.deletions, changedFiles: p.changed_files, createdAt: p.created_at, updatedAt: p.updated_at, mergedAt: p.merged_at })) })
 })
 
@@ -208,10 +209,10 @@ pulls.patch('/repos/:owner/:repo/pulls/:number{[0-9]+}', async (c) => {
     if (dup) return c.json({ error: 'another open pull request exists for these branches' }, 409)
   }
   await sql.begin(async (tx) => {
-    await tx`UPDATE pull_requests SET state = ${state}, draft = ${b.draft ?? p.draft} WHERE issue_id = ${p.issue_id}`
+    await tx`UPDATE pull_requests SET state = ${state}, draft = ${(b.draft ?? bool(p.draft)) ? 1 : 0} WHERE issue_id = ${p.issue_id}`
     await tx`UPDATE issues SET title = ${title}, body = ${b.body === undefined ? p.body : b.body}, state = ${state === 'open' ? 'open' : 'closed'},
       state_reason = ${state === 'open' ? (p.state === 'closed' ? 'reopened' : null) : p.state === 'merged' ? 'completed' : 'not_planned'},
-      closed_at = ${state === 'open' ? null : new Date()}, closed_by = ${state === 'open' ? null : user!.id}, updated_at = now() WHERE id = ${p.issue_id}`
+      closed_at = ${state === 'open' ? null : now()}, closed_by = ${state === 'open' ? null : user!.id}, updated_at = ${now()} WHERE id = ${p.issue_id}`
     if (state !== p.state) { await issueEvent(tx, Number(p.issue_id), user!.id, state === 'open' ? 'reopened' : 'closed'); await activity(tx, Number(repo.id), user!.id, `pr.${state === 'open' ? 'reopened' : 'closed'}`, { number: Number(p.number) }) }
   })
   return c.json(await prView(repo, await syncPr(repo, (await findPr(repo, Number(p.number)))!)))
@@ -252,7 +253,7 @@ pulls.get('/repos/:owner/:repo/pulls/:number{[0-9]+}/reviews', async (c) => {
   const cm = await sql`SELECT c.id, c.review_id, c.path, c.side, c.line, c.start_line, c.body, c.resolved, u.login FROM review_comments c JOIN users u ON u.id = c.author_id WHERE c.pr_issue_id = ${r.p.issue_id} ORDER BY c.id`
   return c.json({ reviews: rows.map((v: Record<string, any>) => ({
     id: Number(v.id), state: v.state, body: v.body, author: v.login, commitOid: toHex(v.commit_oid), submittedAt: v.submitted_at,
-    comments: cm.filter((m: Record<string, any>) => Number(m.review_id) === Number(v.id)).map((m: Record<string, any>) => ({ id: Number(m.id), path: m.path, side: m.side, line: m.line, startLine: m.start_line, body: m.body, author: m.login, resolved: m.resolved })) })) })
+    comments: cm.filter((m: Record<string, any>) => Number(m.review_id) === Number(v.id)).map((m: Record<string, any>) => ({ id: Number(m.id), path: m.path, side: m.side, line: m.line, startLine: m.start_line, body: m.body, author: m.login, resolved: bool(m.resolved) })) })) })
 })
 
 pulls.post('/repos/:owner/:repo/pulls/:number{[0-9]+}/reviews', async (c) => {
@@ -276,12 +277,12 @@ pulls.post('/repos/:owner/:repo/pulls/:number{[0-9]+}/reviews', async (c) => {
       || !Number.isInteger(m.line) || m.line! < 1 || !['LEFT', 'RIGHT'].includes(m.side ?? 'RIGHT')) return c.json({ error: 'each comment needs path, line, body and side LEFT|RIGHT' }, 400)
   }
   const id = await sql.begin(async (tx) => {
-    const [rv] = await tx`INSERT INTO reviews (pr_issue_id, author_id, commit_oid, state, body, submitted_at) VALUES (${p.issue_id}, ${user!.id}, ${p.head_oid}, ${state}, ${body}, now()) RETURNING id`
+    const [rv] = await tx`INSERT INTO reviews (pr_issue_id, author_id, commit_oid, state, body, submitted_at) VALUES (${p.issue_id}, ${user!.id}, ${p.head_oid}, ${state}, ${body}, ${now()}) RETURNING id`
     for (const m of comments) await tx`INSERT INTO review_comments (review_id, pr_issue_id, author_id, commit_oid, path, side, line, start_line, body)
       VALUES (${rv.id}, ${p.issue_id}, ${user!.id}, ${p.head_oid}, ${m.path}, ${m.side ?? 'RIGHT'}, ${m.line}, ${m.startLine ?? null}, ${m.body})`
     await issueEvent(tx, Number(p.issue_id), user!.id, `review_${state}`, { reviewId: Number(rv.id) })
     await activity(tx, Number(repo.id), user!.id, 'pr.reviewed', { number: Number(p.number), state })
-    await tx`UPDATE issues SET updated_at = now() WHERE id = ${p.issue_id}`
+    await tx`UPDATE issues SET updated_at = ${now()} WHERE id = ${p.issue_id}`
     return Number(rv.id)
   })
   return c.json({ id, state, commitOid: toHex(p.head_oid) }, 201)
@@ -291,7 +292,7 @@ pulls.post('/repos/:owner/:repo/pulls/:number{[0-9]+}/reviews', async (c) => {
 async function mergeBlockers(repo: RepoRow, p: Record<string, any>): Promise<string[]> {
   const out: string[] = []
   if (p.state !== 'open') return [`pull request is ${p.state}`]
-  if (p.draft) out.push('pull request is a draft')
+  if (bool(p.draft)) out.push('pull request is a draft')
   if (p.mergeable === 'conflict') out.push('merge conflicts with the base branch')
   const rule = await protectionFor(Number(repo.id), p.base_ref)
   const rs = await reviewState(repo, p)
@@ -299,7 +300,7 @@ async function mergeBlockers(repo: RepoRow, p: Record<string, any>): Promise<str
   if (rule) {
     const need = Number(rule.required_approvals)
     if (rs.approvals.length < need) out.push(`needs ${need} approving review(s) on the current head, has ${rs.approvals.length}`)
-    for (const name of rule.require_status_checks as string[]) {
+    for (const name of parseJson<string[]>(rule.require_status_checks) ?? []) {
       const [ck] = await sql`SELECT conclusion FROM check_runs WHERE repo_id = ${repo.id} AND head_oid = ${p.head_oid} AND name = ${name} ORDER BY id DESC LIMIT 1`
       if (ck?.conclusion !== 'success') out.push(`required status check "${name}" has not passed`)
     }
@@ -362,9 +363,10 @@ pulls.post('/repos/:owner/:repo/pulls/:number{[0-9]+}/merge', async (c) => {
     const upd = await gitx(dir, ['update-ref', '-m', `merge pull request #${p.number}`, `refs/heads/${p.base_ref}`, res.oid, base])
     if (upd.code !== 0) return c.json({ error: 'base branch moved while merging; retry' }, 409)
     await recordRefUpdates(repo, user!, repoIdHex, [{ oldOid: base, newOid: res.oid, ref: `refs/heads/${p.base_ref}` }])
+    const at = now()
     await sql.begin(async (tx: Tx) => {
-      await tx`UPDATE pull_requests SET state = 'merged', merge_method = ${method}, merged_by = ${user!.id}, merged_at = now(), merge_commit_oid = ${hex(res.oid)} WHERE issue_id = ${p.issue_id}`
-      await tx`UPDATE issues SET state = 'closed', state_reason = 'completed', closed_at = now(), closed_by = ${user!.id}, updated_at = now() WHERE id = ${p.issue_id}`
+      await tx`UPDATE pull_requests SET state = 'merged', merge_method = ${method}, merged_by = ${user!.id}, merged_at = ${at}, merge_commit_oid = ${hex(res.oid)} WHERE issue_id = ${p.issue_id}`
+      await tx`UPDATE issues SET state = 'closed', state_reason = 'completed', closed_at = ${at}, closed_by = ${user!.id}, updated_at = ${at} WHERE id = ${p.issue_id}`
       await issueEvent(tx, Number(p.issue_id), user!.id, 'merged', { method, commit: res.oid })
       await activity(tx, Number(repo.id), user!.id, 'pr.merged', { number: Number(p.number), method, commit: res.oid })
     })

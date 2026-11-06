@@ -13,6 +13,15 @@ import { canonicalJson } from './canonical.ts'
 import { chunkBytes } from './chunks.ts'
 import { hexToBytes, sha256 } from './hash.ts'
 import { LocalNetworkStore } from './local-store.ts'
+import { restoreChunksFromBundle } from './repository.ts'
+import {
+  createSwarmClient,
+  fetchPackFromSwarm,
+  isSwarmReference,
+  swarmConfigFromEnv,
+  type SwarmClient,
+  type SwarmPackRefs,
+} from './swarm.ts'
 import type { Hex, RepositoryManifest } from './types.ts'
 
 /**
@@ -120,6 +129,10 @@ export async function uploadManifestToArkiv(args: {
   coldId?: string
   /** lowercase 0x chunk hashes that already exist on Arkiv for this repo; they are not uploaded again */
   skipChunks?: ReadonlySet<string>
+  /** Swarm references from `publishPackToSwarm`; recorded in the manifest entity content so recovery reads Swarm first */
+  swarm?: SwarmPackRefs
+  /** false: write only the manifest entity (bytes live on Swarm). Default true: also mirror object/bundle chunks to Arkiv */
+  uploadChunks?: boolean
 }): Promise<ArkivUploadResult> {
   const { manifest, localStore, connection } = args
   const transactionHashes: ViemHex[] = []
@@ -142,6 +155,7 @@ export async function uploadManifestToArkiv(args: {
     content: Uint8Array
   }) => {
     if (args.skipChunks?.has(values.chunkHash.toLowerCase())) return
+    if (args.uploadChunks === false && values.objectKind !== 'manifest') return
     const result = await sendAndConfirm(connection, () => connection.walletClient.createEntity(
       ArkivChunkSchema,
       {
@@ -204,8 +218,9 @@ export async function uploadManifestToArkiv(args: {
   const manifestBytes = new TextEncoder().encode(canonicalJson(manifest))
   const manifestHash = sha256(manifestBytes)
   const manifestParts = chunkBytes(manifestBytes)
-  const inlineContent = manifestBytes.byteLength <= 120 * 1024 ? manifestBytes : new Uint8Array()
-  if (inlineContent.byteLength === 0) {
+  const inlineContent = arkivManifestContent(manifest, args.swarm)
+  const manifestInline = inlineContent.byteLength > 0 && !isPointerContent(inlineContent)
+  if (!manifestInline) {
     for (const [index, descriptor] of manifestParts.descriptors.entries()) {
       const content = manifestParts.chunks[index]
       if (!content) throw new Error(`Missing manifest chunk ${index}`)
@@ -237,7 +252,7 @@ export async function uploadManifestToArkiv(args: {
       packHash: key(asArkivKey(manifest.bundleHash)),
       objectRoot: key(asArkivKey(manifest.objectRoot)),
       objectCount: u64(BigInt(manifest.objects.length)),
-      chunkCount: u64(BigInt(inlineContent.byteLength === 0 ? manifestParts.chunks.length : 0)),
+      chunkCount: u64(BigInt(manifestInline ? 0 : manifestParts.chunks.length)),
       codec: 'canonical-json',
       ...(args.coldId ? { coldId: args.coldId } : {}),
       content: inlineContent,
@@ -274,11 +289,6 @@ export async function findManifestOnArkiv(args: {
     .fetch()
 }
 
-/**
- * Rebuild a repository in a local store using only Arkiv reads.
- * Arkiv reads are untrusted: the manifest is hash-checked against `manifestHash`
- * and every chunk is BLAKE3-verified by `LocalNetworkStore.putChunk`.
- */
 function arkivBytes(value: unknown): Uint8Array {
   if (value instanceof Uint8Array) return value
   if (typeof value === 'string') return hexToBytes(value as Hex)
@@ -286,43 +296,134 @@ function arkivBytes(value: unknown): Uint8Array {
   throw new Error('Unexpected Arkiv bytes value')
 }
 
+/**
+ * Rebuild a repository in a local store from its Arkiv manifest entity. Pack bytes come from Swarm when the manifest names Swarm
+ * refs and Swarm is reachable, otherwise from Arkiv chunks. Every read is untrusted: the manifest is hash-checked against
+ * `manifestHash`, the Swarm pack against the manifest, and every chunk is BLAKE3-verified by `LocalNetworkStore.putChunk`.
+ */
 export async function fetchRepositoryFromArkiv(args: {
   repoId: Hex
   manifestHash: Hex
   connection: ReturnType<typeof createArkivConnection>
   store: LocalNetworkStore
+  /** Swarm client for the pack bytes; default from BEE_URL. null disables Swarm (Arkiv chunks only). */
+  swarm?: SwarmClient | null
+  /** repository key for encrypted Swarm packs */
+  swarmKey?: Uint8Array
+  log?: (message: string) => void
 }): Promise<RepositoryManifest> {
-  const { repoId, manifestHash, connection, store } = args
+  const { repoId, manifestHash, connection } = args
   const found = await findManifestOnArkiv({ repoId, manifestHash, connection })
   const entity = found.entities[0]
   if (!entity) throw new Error(`Manifest not found on Arkiv: ${manifestHash}`)
-  const content = arkivBytes(entity.content)
-  if (content.byteLength === 0) throw new Error('Chunked manifests are not supported by this reader yet')
-  const text = new TextDecoder().decode(content)
-  if (sha256(text) !== manifestHash) throw new Error('Arkiv manifest hash mismatch')
-  const manifest = JSON.parse(text) as RepositoryManifest
+  const config = args.swarm === undefined ? swarmConfigFromEnv() : null
+  const swarm = args.swarm === undefined ? (config ? createSwarmClient(config) : null) : args.swarm
+  const result = await recoverRepositoryFromManifestContent({
+    repoId,
+    manifestHash,
+    content: arkivBytes(entity.content),
+    store: args.store,
+    swarm,
+    ...(args.swarmKey ? { swarmKey: args.swarmKey } : {}),
+    ...(args.log ? { log: args.log } : {}),
+    async fetchChunk(chunkHash) {
+      const result = await connection.publicClient
+        .select({ $key: true, content: true, chunkHash: true })
+        .from(ArkivChunkSchema, { onMismatch: 'throw' })
+        .where(and(eq('repo', key(asArkivKey(repoId))), eq('chunkHash', key(asArkivKey(chunkHash)))))
+        .orderBy(asc('seq'))
+        .limit(1)
+        .fetch()
+      const chunk = result.entities[0]
+      if (!chunk) throw new Error(`Chunk not found on Arkiv: ${chunkHash}`)
+      return arkivBytes(chunk.content)
+    },
+  })
+  return result.manifest
+}
+
+/**
+ * Content of a `dheet-manifest-v1` entity: the canonical manifest JSON, plus `swarmPackRef` / `swarmManifestRef` when the pack
+ * lives on Swarm. A manifest too large to inline becomes a pointer (just the two refs) when Swarm refs exist, else empty.
+ */
+export function arkivManifestContent(manifest: RepositoryManifest, swarm?: SwarmPackRefs): Uint8Array {
+  const refs = swarm ? { swarmManifestRef: swarm.manifestRef, swarmPackRef: swarm.packRef } : {}
+  const full = new TextEncoder().encode(canonicalJson({ ...manifest, ...refs }))
+  if (full.byteLength <= 120 * 1024) return full
+  return swarm ? new TextEncoder().encode(canonicalJson(refs)) : new Uint8Array()
+}
+
+function isPointerContent(content: Uint8Array): boolean {
+  return parseArkivManifestContent(content).manifest === null
+}
+
+/** Split entity content into the manifest (null for an empty or pointer-only content) and the Swarm refs (null when absent). */
+export function parseArkivManifestContent(content: Uint8Array, manifestHash?: Hex): {
+  manifest: RepositoryManifest | null
+  swarm: SwarmPackRefs | null
+} {
+  if (content.byteLength === 0) return { manifest: null, swarm: null }
+  const parsed = JSON.parse(new TextDecoder().decode(content)) as Record<string, unknown>
+  const { swarmPackRef, swarmManifestRef, ...rest } = parsed
+  const swarm = isSwarmReference(swarmPackRef) && isSwarmReference(swarmManifestRef)
+    ? { packRef: swarmPackRef, manifestRef: swarmManifestRef }
+    : null
+  if (rest.protocol === undefined) return { manifest: null, swarm }
+  if (manifestHash && sha256(canonicalJson(rest)) !== manifestHash) throw new Error('Arkiv manifest hash mismatch')
+  return { manifest: rest as unknown as RepositoryManifest, swarm }
+}
+
+/**
+ * Rebuild a repository in `store` from the content of an Arkiv manifest entity. When the content names Swarm refs and a client is
+ * given, the pack comes from Swarm (verified against the manifest); any chunk still missing is read with `fetchChunk` (Arkiv).
+ */
+export async function recoverRepositoryFromManifestContent(args: {
+  repoId: Hex
+  manifestHash: Hex
+  content: Uint8Array
+  store: LocalNetworkStore
+  swarm?: SwarmClient | null
+  swarmKey?: Uint8Array
+  fetchChunk: (chunkHash: Hex) => Promise<Uint8Array>
+  log?: (message: string) => void
+}): Promise<{ manifest: RepositoryManifest; source: 'swarm' | 'arkiv' | 'swarm+arkiv'; swarmError?: string }> {
+  const { repoId, manifestHash, store } = args
+  const parsed = parseArkivManifestContent(args.content, manifestHash)
+  let manifest = parsed.manifest
+  let fromSwarm: Set<string> | null = null
+  let swarmError: string | undefined
+  if (parsed.swarm && args.swarm) {
+    try {
+      const fetched = await fetchPackFromSwarm<RepositoryManifest>(args.swarm, parsed.swarm.manifestRef, args.swarmKey)
+      if (fetched.packRef !== parsed.swarm.packRef) throw new Error('Swarm pack reference does not match the Arkiv manifest')
+      if (sha256(canonicalJson(fetched.manifest)) !== manifestHash) throw new Error('Swarm manifest hash mismatch')
+      manifest ??= fetched.manifest
+      const restored = restoreChunksFromBundle(store, manifest, fetched.packBytes)
+      const missing = new Set<string>(restored.missing)
+      fromSwarm = new Set(requiredChunks(manifest).filter((hash) => !missing.has(hash)))
+    } catch (error) {
+      swarmError = error instanceof Error ? error.message : String(error)
+      args.log?.(`Swarm recovery failed, falling back to Arkiv chunks: ${swarmError}`)
+    }
+  } else if (parsed.swarm) {
+    args.log?.('Manifest has Swarm refs but Swarm is not configured (BEE_URL); using Arkiv chunks')
+  }
+  if (!manifest) {
+    throw new Error(swarmError
+      ? `Manifest is only available from Swarm and Swarm failed: ${swarmError}`
+      : 'Chunked manifests are not supported by this reader yet')
+  }
   if (manifest.repoId.toLowerCase() !== repoId.toLowerCase()) throw new Error('Manifest repoId mismatch')
 
-  const wanted = new Map<Hex, true>()
-  for (const descriptor of manifest.bundleChunks) wanted.set(descriptor.hash, true)
-  for (const object of manifest.objects) for (const descriptor of object.chunks) wanted.set(descriptor.hash, true)
-
-  for (const chunkHash of wanted.keys()) {
-    const result = await connection.publicClient
-      .select({ $key: true, content: true, chunkHash: true })
-      .from(ArkivChunkSchema, { onMismatch: 'throw' })
-      .where(and(eq('repo', key(asArkivKey(repoId))), eq('chunkHash', key(asArkivKey(chunkHash)))))
-      .orderBy(asc('seq'))
-      .limit(1)
-      .fetch()
-    const chunk = result.entities[0]
-    if (!chunk) throw new Error(`Chunk not found on Arkiv: ${chunkHash}`)
-    const stored = store.putChunk(arkivBytes(chunk.content))
+  let fromArkiv = 0
+  for (const chunkHash of requiredChunks(manifest)) {
+    if (fromSwarm?.has(chunkHash)) continue
+    const stored = store.putChunk(await args.fetchChunk(chunkHash))
     if (stored.hash !== chunkHash) throw new Error(`Arkiv chunk failed verification: ${chunkHash}`)
+    fromArkiv += 1
   }
 
   store.putManifest(manifest)
-  const now = Math.floor(Date.now() / 1000)
   store.restoreRepo({
     repoId,
     name: manifest.name,
@@ -330,7 +431,15 @@ export async function fetchRepositoryFromArkiv(args: {
     manifestHash,
     refs: Object.fromEntries(manifest.refs.map((ref) => [ref.name, ref.oid])),
     createdAt: manifest.createdAt,
-    updatedAt: now,
+    updatedAt: Math.floor(Date.now() / 1000),
   })
-  return manifest
+  const source = !fromSwarm ? 'arkiv' : fromArkiv > 0 ? 'swarm+arkiv' : 'swarm'
+  return { manifest, source, ...(swarmError ? { swarmError } : {}) }
+}
+
+function requiredChunks(manifest: RepositoryManifest): Hex[] {
+  return [...new Set<Hex>([
+    ...manifest.bundleChunks.map((descriptor) => descriptor.hash),
+    ...manifest.objects.flatMap((object) => object.chunks.map((descriptor) => descriptor.hash)),
+  ])]
 }
