@@ -78,6 +78,27 @@ function renderNav() {
 
 type OrgSummary = { login: string; visibility: string; role: string; members: number; repos: number }
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+const icon = (name: 'repo' | 'code' | 'commit' | 'issue' | 'pull' | 'session' | 'ledger' | 'action' | 'project' | 'security' | 'settings' | 'folder' | 'file' | 'branch' | 'copy' | 'verified') => {
+  const paths: Record<string, string> = {
+    repo: '<path d="M3 2.75A1.75 1.75 0 0 1 4.75 1h8.5A1.75 1.75 0 0 1 15 2.75v10.5A1.75 1.75 0 0 1 13.25 15h-8.5A1.75 1.75 0 0 1 3 13.25z"/><path d="M6 1v14M3 11.5h3"/>',
+    code: '<path d="m5.25 4-4 4 4 4M10.75 4l4 4-4 4"/>',
+    commit: '<circle cx="8" cy="8" r="2.5"/><path d="M1 8h4.5M10.5 8H15"/>',
+    issue: '<circle cx="8" cy="8" r="6.25"/><path d="M8 4.75v3.5M8 11.1v.15"/>',
+    pull: '<circle cx="4" cy="3" r="1.75"/><circle cx="4" cy="13" r="1.75"/><circle cx="12" cy="13" r="1.75"/><path d="M4 4.75v6.5M7 3h1.5A3.5 3.5 0 0 1 12 6.5v4.75"/>',
+    session: '<circle cx="8" cy="8" r="6.25"/><path d="M8 4.25V8l2.5 1.5"/>',
+    ledger: '<path d="M2 3.25A1.25 1.25 0 0 1 3.25 2h9.5A1.25 1.25 0 0 1 14 3.25v9.5A1.25 1.25 0 0 1 12.75 14h-9.5A1.25 1.25 0 0 1 2 12.75zM5 5.25h6M5 8h6M5 10.75h3.5"/>',
+    action: '<path d="m9.25 1.5-5.5 7h4l-1 6 5.5-7h-4z"/>',
+    project: '<path d="M2 3.25A1.25 1.25 0 0 1 3.25 2h9.5A1.25 1.25 0 0 1 14 3.25v9.5A1.25 1.25 0 0 1 12.75 14h-9.5A1.25 1.25 0 0 1 2 12.75zM6 2v12M10 2v12"/>',
+    security: '<path d="M8 1.5 13.5 4v3.75c0 3.4-2.2 5.6-5.5 6.75-3.3-1.15-5.5-3.35-5.5-6.75V4z"/><path d="m5.5 8 1.5 1.5 3.5-3.5"/>',
+    settings: '<circle cx="8" cy="8" r="2.25"/><path d="M8 1.5v1.25M8 13.25v1.25M1.5 8h1.25M13.25 8h1.25M3.4 3.4l.9.9M11.7 11.7l.9.9M12.6 3.4l-.9.9M4.3 11.7l-.9.9"/>',
+    folder: '<path d="M1.5 4.25A1.25 1.25 0 0 1 2.75 3h3l1.5 1.5h6A1.25 1.25 0 0 1 14.5 5.75v6A1.25 1.25 0 0 1 13.25 13H2.75a1.25 1.25 0 0 1-1.25-1.25z"/>',
+    file: '<path d="M4 1.5h5l3 3v10H4zM9 1.5v3h3"/>',
+    branch: '<circle cx="4" cy="3" r="1.5"/><circle cx="4" cy="13" r="1.5"/><circle cx="12" cy="5" r="1.5"/><path d="M4 4.5v7M5.5 10.5h1A5.5 5.5 0 0 0 12 5"/>',
+    copy: '<rect x="5.25" y="5.25" width="8.25" height="8.25" rx="1"/><path d="M10.75 5.25v-2A.75.75 0 0 0 10 2.5H3.25a.75.75 0 0 0-.75.75V10a.75.75 0 0 0 .75.75h2"/>',
+    verified: '<path d="m8 1.5 1.6 1.15 1.95-.05.55 1.85 1.6 1.1-.65 1.85.65 1.85-1.6 1.1-.55 1.85-1.95-.05L8 13.5l-1.6-1.15-1.95.05-.55-1.85-1.6-1.1.65-1.85-.65-1.85 1.6-1.1.55-1.85 1.95.05z"/><path d="m5.5 7.7 1.55 1.55 3.45-3.5"/>',
+  }
+  return `<svg class="ui-icon" viewBox="0 0 16 16" aria-hidden="true">${paths[name]}</svg>`
+}
 
 function orgsColumn(orgs: OrgSummary[] | null): string {
   const head = `<div class="side-head"><h2 id="orgs-heading">Organisations</h2>${me ? '<a class="side-link" href="/orgs/new">New</a>' : ''}</div>`
@@ -98,9 +119,9 @@ async function home() {
   app.innerHTML = `<header class="page-heading"><div><p class="eyebrow">Workspace</p><h1>Repositories</h1><p class="page-description">Browse code, collaborate, and verify every release from one place.</p></div>${me ? '<a class="btn" href="/new">New repository</a>' : ''}</header>
     <div class="home-grid"><section class="home-main" aria-label="Repositories">
     <div class="card list repo-list">${repos.map((r) => `
-    <div class="repo-row"><div class="repo-icon" aria-hidden="true">⌘</div><div class="grow"><div class="repo-title"><a href="/${esc(r.owner)}/${esc(r.name)}"><b>${esc(r.owner)}/${esc(r.name)}</b></a>
+    <div class="repo-row"><div class="repo-icon" aria-hidden="true">${icon('repo')}</div><div class="grow"><div class="repo-title"><a href="/${esc(r.owner)}/${esc(r.name)}"><b>${esc(r.owner)}/${esc(r.name)}</b></a>
     <span class="chip">${esc(r.visibility)}</span></div><div class="muted repo-description">${esc(r.description ?? 'No description provided.')}</div>
-    <div class="muted mono repo-id">${short(r.repoId)}</div></div><span class="row-arrow" aria-hidden="true">›</span></div>`).join('') || `<div class="empty-state"><div class="empty-icon" aria-hidden="true">⌘</div><h2>No repositories yet</h2><p class="muted">${me ? 'Create a repository to start collaborating.' : 'Connect your wallet to create your first repository.'}</p>${me ? '<a class="btn" href="/new">Create repository</a>' : ''}</div>`}</div></section>
+    <div class="muted mono repo-id">${short(r.repoId)}</div></div><span class="row-arrow" aria-hidden="true">›</span></div>`).join('') || `<div class="empty-state"><div class="empty-icon" aria-hidden="true">${icon('repo')}</div><h2>No repositories yet</h2><p class="muted">${me ? 'Create a repository to start collaborating.' : 'Connect your wallet to create your first repository.'}</p>${me ? '<a class="btn" href="/new">Create repository</a>' : ''}</div>`}</div></section>
     <aside class="home-side" aria-labelledby="orgs-heading">${orgsColumn(orgs)}</aside></div>`
 }
 
@@ -218,20 +239,24 @@ async function repoPage(owner: string, name: string, tab: string, params: URLSea
   const tabNames = ['code', 'commits', 'issues', 'pulls', ...(repo.canWrite ? ['sessions'] : []), 'ledger', 'actions', 'projects', 'security', 'settings']
   let wire: (() => void) | undefined
   const labels: Record<string, string> = { code: 'Code', commits: 'Commits', issues: 'Issues', pulls: 'Pull requests', sessions: 'Sessions', ledger: 'Ledger', actions: 'Actions', projects: 'Projects', security: 'Security', settings: 'Settings' }
-  const tabs = tabNames.map((t) => `<a class="${tab === t ? 'on' : ''}"${tab === t ? ' aria-current="page"' : ''} href="${base}${t === 'code' ? '' : '/' + t}">${labels[t]}</a>`).join('')
+  const tabIcons: Record<string, Parameters<typeof icon>[0]> = { code: 'code', commits: 'commit', issues: 'issue', pulls: 'pull', sessions: 'session', ledger: 'ledger', actions: 'action', projects: 'project', security: 'security', settings: 'settings' }
+  const tabs = tabNames.map((t) => `<a class="${tab === t ? 'on' : ''}"${tab === t ? ' aria-current="page"' : ''} href="${base}${t === 'code' ? '' : '/' + t}">${icon(tabIcons[t]!)}<span>${labels[t]}</span></a>`).join('')
   let body = ''
   if (tab === 'code') {
     const path = params.get('path') ?? '', file = params.get('file')
     if (file) {
       const b = await api(`/api/repos/${owner}/${name}/blob?path=${encodeURIComponent(file)}`)
-      body = `<div class="crumbs"><a href="${base}">${esc(name)}</a> / ${esc(file)}</div><pre>${b.binary ? '(binary file)' : b.truncated ? '(file too large to display)' : esc(b.content)}</pre>`
+      body = `<div class="file-toolbar"><div class="crumbs">${icon('repo')}<a href="${base}">${esc(name)}</a><span>/</span><b>${esc(file)}</b></div><a class="btn secondary compact" href="${base}">Back to files</a></div><pre class="source-view">${b.binary ? '(binary file)' : b.truncated ? '(file too large to display)' : esc(b.content)}</pre>`
     } else {
       const t = await api(`/api/repos/${owner}/${name}/tree?path=${encodeURIComponent(path)}`)
       const up = path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : ''
-      body = `<div class="card list">${path ? `<div><a href="${base}?path=${encodeURIComponent(up)}">..</a></div>` : ''}${t.entries.map((e: any) =>
-        `<div>${e.type === 'tree' ? '📁' : '📄'} <a href="${base}?${e.type === 'tree' ? 'path' : 'file'}=${encodeURIComponent(e.path)}">${esc(e.name)}</a></div>`).join('') || '<p class="muted">Empty repository. Push a commit to get started.</p>'}</div>`
+      const pathLabel = path ? `<span>/</span><b>${esc(path)}</b>` : ''
+      body = `<div class="repo-toolbar"><div class="branch-pill">${icon('branch')}<b>${esc(repo.defaultBranch)}</b></div><div class="repo-path">${icon('repo')}<a href="${base}">${esc(name)}</a>${pathLabel}</div></div>
+        <div class="tree-browser"><div class="tree-summary"><span>${icon('verified')} Verifiable repository history</span><span class="muted mono">${short(repo.repoId)}</span></div>
+        ${path ? `<a class="tree-row tree-parent" href="${base}?path=${encodeURIComponent(up)}"><span class="tree-icon">${icon('folder')}</span><span>..</span><span class="tree-detail">Parent directory</span></a>` : ''}${t.entries.map((e: any) =>
+        `<a class="tree-row" href="${base}?${e.type === 'tree' ? 'path' : 'file'}=${encodeURIComponent(e.path)}"><span class="tree-icon ${e.type}">${icon(e.type === 'tree' ? 'folder' : 'file')}</span><span class="tree-name">${esc(e.name)}</span><span class="tree-detail">${e.type === 'tree' ? 'Directory' : 'File'}</span><span class="row-arrow" aria-hidden="true">›</span></a>`).join('') || '<div class="tree-empty"><b>Empty repository</b><span class="muted">Push a commit to get started.</span></div>'}</div>`
     }
-    body += `<div class="card"><h2>Clone</h2><pre>git clone ${esc(repo.cloneUrl)}</pre><p class="muted">Push with a personal access token as the password.</p></div>`
+    body += `<section class="clone-panel" aria-labelledby="clone-title"><div><h2 id="clone-title">Clone this repository</h2><p class="muted">Use a personal access token as the password when pushing over HTTPS.</p></div><div class="clone-control"><code id="clone-url">${esc(repo.cloneUrl)}</code><button id="copy-clone" class="ghost compact" type="button">${icon('copy')}<span>Copy</span></button></div><code class="clone-command">git clone ${esc(repo.cloneUrl)}</code><span id="copy-status" class="muted" role="status"></span></section>`
   } else if (tab === 'commits') {
     const { commits } = await api(`/api/repos/${owner}/${name}/commits`)
     body = `<div class="card list">${commits.map((c: any) => {
@@ -254,8 +279,14 @@ async function repoPage(owner: string, name: string, tab: string, params: URLSea
     body = `<div class="card"><h2>L1 anchors</h2><div class="list">${l.anchors.map((a: any) => `<div class="mono">${esc(a.ref_name.slice(0, 40))} · seq ${esc(a.ref_sequence)} · <a href="${etherscan(a.chain_id, '0x' + a.tx)}" target="_blank" rel="noopener">0x${esc(a.tx.slice(0, 10))}…</a></div>`).join('') || '<p class="muted">None yet.</p>'}</div></div>
       <div class="card"><h2>Arkiv entities</h2><div class="list">${l.entities.map((e: any) => `<div class="mono"><span class="chip">${esc(e.schema)}</span> 0x${esc(e.entity.slice(0, 14))}… · expires block ${esc(e.expires_at_block)}</div>`).join('') || '<p class="muted">None yet.</p>'}</div></div>`
   }
-  app.innerHTML = `<header class="repo-heading"><div class="repo-heading-icon" aria-hidden="true">⌘</div><div class="grow"><div class="repo-heading-title"><h1><span>${esc(owner)}</span><span class="repo-slash">/</span>${esc(name)}</h1><span class="chip">${esc(repo.visibility)}</span></div>
-    <p class="muted">${esc(repo.description ?? 'No description provided.')} <span class="mono repo-meta-id">${short(repo.repoId)}</span></p></div></header><nav class="tabs" aria-label="Repository">${tabs}</nav>${body}`
+  app.innerHTML = `<header class="repo-heading"><div class="repo-heading-icon" aria-hidden="true">${icon('repo')}</div><div class="grow"><div class="repo-heading-title"><h1><span>${esc(owner)}</span><span class="repo-slash">/</span>${esc(name)}</h1><span class="chip">${esc(repo.visibility)}</span></div>
+    <p class="muted">${esc(repo.description ?? 'No description provided.')}</p></div><div class="repo-proof" title="Repository events can be independently verified">${icon('verified')}<span><b>Verifiable history</b><small>${esc(NETWORK.label)}</small></span></div></header><nav class="tabs repo-tabs" aria-label="Repository">${tabs}</nav>${body}`
+  const copy = document.getElementById('copy-clone') as HTMLButtonElement | null
+  if (copy) copy.onclick = async () => {
+    const status = document.getElementById('copy-status')!
+    try { await navigator.clipboard.writeText(repo.cloneUrl); status.textContent = 'Copied to clipboard'; copy.innerHTML = `${icon('verified')}<span>Copied</span>` }
+    catch { status.textContent = 'Could not copy. Select the URL and copy it manually.' }
+  }
   wire?.()
 }
 
