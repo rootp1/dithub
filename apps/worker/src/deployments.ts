@@ -1,6 +1,7 @@
 // Deployment mirror: Sepolia DeployRegistry/DeployAttestations logs -> Postgres `deployments` -> Arkiv (dheet-activity-v1, kinds 'deploy' / 'attest').
 // Cursor-based (chain_cursors), bounded getLogs ranges, idempotent, exponential backoff, safe to restart at any point.
 import type { SQL } from 'bun'
+import { withArkivLock } from './arkiv-lock.ts'
 import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { createPublicClient, http, parseAbi, type Address, type Log } from 'viem'
@@ -102,12 +103,27 @@ export function startDeploymentMirror(args: { sql: SQL; arkiv: ReturnType<typeof
     console.log(`deployments: attestation #${releaseId} ok=${ok} -> Arkiv ${r.entityKey}`)
   }
 
-  /** Scan one contract from its cursor to head in <=2000-block windows. Returns true if it reached head. */
+  /**
+   * Scan one contract from its cursor to head. Public RPCs sit behind load balancers whose backends disagree on the head by a few
+   * blocks and many free tiers cap the getLogs range, so on a range/params error we shrink the window and pull the upper bound in.
+   */
   async function scan(name: string, address: Address, start: bigint, head: bigint, run: (from: bigint, to: bigint) => Promise<void>) {
     let from = await cursor(name, start)
-    while (from <= head) {
-      const to = from + CHUNK - 1n > head ? head : from + CHUNK - 1n
-      await run(from, to)
+    let chunk = CHUNK
+    let cap = head
+    while (from <= cap) {
+      const to = from + chunk - 1n > cap ? cap : from + chunk - 1n
+      try {
+        await run(from, to)
+      } catch (error) {
+        const msg = String((error as Error)?.message ?? error)
+        if (/range|limit|beyond|exceed|invalid param|not a valid request|too many|query returned more/i.test(msg) && (chunk > 10n || cap > from)) {
+          chunk = chunk > 10n ? chunk / 2n : chunk
+          cap = to > from + 2n ? to - 2n : from
+          continue
+        }
+        throw error
+      }
       await saveCursor(name, to)       // advanced only after every log in the window was mirrored
       from = to + 1n
     }
@@ -117,15 +133,15 @@ export function startDeploymentMirror(args: { sql: SQL; arkiv: ReturnType<typeof
   async function cycle() {
     const { registry, attestations, start } = loadAddresses()
     if (!registry) { console.log('deployments: DeployRegistry address not configured yet; idle'); return }
-    const head = await client.getBlockNumber()
+    const head = (await client.getBlockNumber()) - 4n   // stay a few blocks behind: backends disagree on the head, and it keeps us clear of shallow reorgs
     await scan('deploy-registry', registry, start, head, async (fromBlock, toBlock) => {
       const logs = await client.getLogs({ address: registry, event: registryEvent[0], fromBlock, toBlock, strict: true })
-      for (const l of logs) await handleRelease(l as never)
+      for (const l of logs) await withArkivLock(() => handleRelease(l as never))
     })
     if (!attestations) return
     await scan('deploy-attestations', attestations, start, head, async (fromBlock, toBlock) => {
       const logs = await client.getLogs({ address: attestations, event: attestedEvent[0], fromBlock, toBlock, strict: true })
-      for (const l of logs) await handleAttest(l as never)
+      for (const l of logs) await withArkivLock(() => handleAttest(l as never))
     })
   }
 

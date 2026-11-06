@@ -1,4 +1,5 @@
 import { SQL } from 'bun'
+import { withArkivLock } from './arkiv-lock.ts'
 import { mkdirSync } from 'node:fs'
 import {
   LocalNetworkStore, anchorRef, claimName, createArkivConnection, publishRepository, recordActivity,
@@ -141,7 +142,7 @@ async function tick(): Promise<boolean> {
   try {
     const run = handlers[job.kind]
     if (!run) throw new Error(`no handler for ${job.kind}`)
-    await run({ ...job, id: Number(job.id), aggregate_id: Number(job.aggregate_id), payload: typeof job.payload === 'string' ? JSON.parse(job.payload) : job.payload } as never)
+    await withArkivLock(() => run({ ...job, id: Number(job.id), aggregate_id: Number(job.aggregate_id), payload: typeof job.payload === 'string' ? JSON.parse(job.payload) : job.payload } as never))
     await sql`UPDATE outbox SET status = 'done', done_at = now(), last_error = NULL WHERE id = ${job.id}`
     console.log(`outbox ${job.id} ${job.kind} done`)
   } catch (error) {
@@ -161,7 +162,7 @@ async function renewal() {
   const rows = await sql`SELECT encode(entity_key,'hex') AS k, expires_at_block FROM arkiv_entities
     WHERE expires_at_block < ${horizon.toString()} ORDER BY expires_at_block LIMIT 20`
   if (rows.length === 0) return
-  const results = await renewArkivEntities({ entityKeys: rows.map((r: { k: string }) => `0x${r.k}` as `0x${string}`), connection: arkiv })
+  const results = await withArkivLock(() => renewArkivEntities({ entityKeys: rows.map((r: { k: string }) => `0x${r.k}` as `0x${string}`), connection: arkiv }))
   for (const r of results) await sql`UPDATE arkiv_entities SET expires_at_block = ${r.expiresAt.toString()}, last_extended_at = now() WHERE entity_key = ${hexBuf(r.entityKey)}`
   console.log(`renewed ${results.length} Arkiv entities`)
 }

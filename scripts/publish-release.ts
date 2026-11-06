@@ -23,8 +23,9 @@ const pc = publicClient()
 const count = await pc.readContract({ address: registry, abi: registryAbi, functionName: 'releaseCount' })
 if (count > 0n) {
   const latest = await pc.readContract({ address: registry, abi: registryAbi, functionName: 'latestRelease' })
-  if (latest[2].toLowerCase() === build.bundleHash.toLowerCase()) {
-    console.log(`skip: release #${latest[0]} already has bundleHash ${build.bundleHash}`)
+  // A release is (commit, bundleHash): the same bundle shipped from a new commit is a new release.
+  if (latest[2].toLowerCase() === build.bundleHash.toLowerCase() && latest[1].toLowerCase() === commit.toLowerCase()) {
+    console.log(`skip: release #${latest[0]} already has commit ${commit} and bundleHash ${build.bundleHash}`)
     process.exit(0)
   }
 }
