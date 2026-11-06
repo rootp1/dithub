@@ -4,13 +4,13 @@ import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { UsageError, DitError } from '../src/errors.ts'
 import { SEL, l1 } from '../src/constants.ts'
-process.env.DIT_NETWORK = 'sepolia'   // the integration tests below replay real Sepolia release 11
+process.env.DIT_NETWORK = 'sepolia'   // the integration tests below replay real Sepolia release 2 (DeployRegistry redeployed 2026-11-07)
 import { bundleHashOf, sha256 } from '../src/cmd/verify.ts'
 import { chooseSandbox, decodeCommit, decodeGetRelease, diffFiles, emptyBuildEnv, parseRebuildArgs, pinnedBunVersion, rebuild, rehashDist, type RebuildOpts } from '../src/cmd/rebuild.ts'
 
 describe('rebuild: pure parts', () => {
   test('decodeCommit takes the right-aligned 20-byte sha', () => {
-    const sha = '4c22d2f6deb3d70950f183246c12e6d66184abfb'
+    const sha = '76b7afaa2b846a5a1d597ec24e22bb1646730a09'
     expect(decodeCommit('0x' + '0'.repeat(24) + sha)).toBe(sha)
     expect(() => decodeCommit('0x' + 'f'.repeat(64))).toThrow(DitError)
     expect(() => decodeCommit('0x12')).toThrow(DitError)
@@ -73,12 +73,12 @@ describe('rebuild: pure parts', () => {
 // ---- integration against Sepolia (skipped when the RPC is unreachable) ----
 const repoRoot = resolve(import.meta.dir, '../../..')
 const reach = await fetch(l1().rpcUrl, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}', signal: AbortSignal.timeout(8000) }).then((r) => r.ok, () => false)
-const hasCommit = Bun.spawnSync(['git', 'cat-file', '-e', '4c22d2f6deb3d70950f183246c12e6d66184abfb^{commit}'], { cwd: repoRoot }).exitCode === 0
+const hasCommit = Bun.spawnSync(['git', 'cat-file', '-e', '76b7afaa2b846a5a1d597ec24e22bb1646730a09^{commit}'], { cwd: repoRoot }).exitCode === 0
 const it = reach && hasCommit ? test : test.skip
-// No explicit site: release 11 is old, so the live site may legitimately serve a newer release (reported as WARN, not FAIL).
-const base: RebuildOpts = { release: 11, source: repoRoot, sandbox: 'none', unsafeLocalBuild: true, json: false }
+// No explicit site: release 2 may be superseded, so the live site may legitimately serve a newer release (reported as WARN, not FAIL).
+const base: RebuildOpts = { release: 2, source: repoRoot, sandbox: 'none', unsafeLocalBuild: true, json: false }
 
-describe('rebuild: release 11 against Sepolia', () => {
+describe('rebuild: release 2 against Sepolia', () => {
   it('MATCH: source == on-chain release == live site', async () => {
     const r = await rebuild(base)
     expect(r.rows.filter((x) => x.status === 'FAIL')).toEqual([])
@@ -86,7 +86,7 @@ describe('rebuild: release 11 against Sepolia', () => {
     expect(r.rows.find((x) => x.check === 'source == on-chain release')?.detail).toBe('MATCH')
   }, 180_000)
   it('MISMATCH: a deliberately modified file is detected and named', async () => {
-    // The "live site" is stubbed with the genuine release-11 build, so only the tampered app.js differs and must be named.
+    // The "live site" is stubbed with the genuine release-2 build, so only the tampered app.js differs and must be named.
     let genuine: ReturnType<typeof rehashDist> | undefined
     const r = await rebuild({ ...base, site: 'https://stub.invalid' }, {
       rehash: (dir) => {

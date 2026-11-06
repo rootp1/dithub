@@ -237,7 +237,7 @@ let issueNo = 0
   ok(tk2.code === 0 && (statSync(tf).mode & 0o777) === 0o600 && !tk2.all.includes(tokFromFile), 'dit token create --out writes a 0600 file and prints nothing secret')
   noLeak(tk.err + tk2.all, 'token create diagnostics')
   const rb = dit(A, ['verify', 'rebuild', '--sandbox', 'none']); ok(rb.code === 2 && /unsafe-local-build/.test(rb.all), 'verify rebuild: --sandbox none alone is a usage error')
-  const rb2 = dit(A, ['verify', 'rebuild', '--release', '1', '--commit', 'a'.repeat(40)]); ok(rb2.code === 2, 'verify rebuild: --release and --commit are exclusive')
+  const rb2 = dit(A, ['verify', 'rebuild', '--release', '2', '--commit', 'a'.repeat(40)]); ok(rb2.code === 2, 'verify rebuild: --release and --commit are exclusive')
   const rec0 = dit(A, ['recover', 'x/y']); ok(rec0.code === 2 && /access-keys/.test(rec0.all), 'dit recover without an Arkiv key explains where to get one')
   const noRepo = dit(A, ['issue', 'list'], { cwd: work }); ok(noRepo.code === 2, 'no repo to infer is a usage error (exit 2)')
 }
@@ -346,7 +346,7 @@ console.log('-- recover and rebuild (network)')
     ok(!rr.all.includes(process.env.ARKIV_ACCESS_KEY), 'recover output never contains the Arkiv key')
   } else console.log('SKIP  dit recover (ARKIV_ACCESS_KEY unset)')
   if (git(A, root, 'cat-file', '-e', '4c22d2f6deb3d70950f183246c12e6d66184abfb^{commit}').code === 0) {
-    const vr = dit(A, ['verify', 'rebuild', '--release', '11', '--source', root, '--sandbox', 'none', '--unsafe-local-build']); ok(vr.code === 0 && /source == on-chain release\s+MATCH/.test(vr.out), 'dit verify rebuild --release 11 MATCH')
+    const vr = dit(A, ['verify', 'rebuild', '--release', '2', '--source', root, '--sandbox', 'none', '--unsafe-local-build']); ok(vr.code === 0 && /source == on-chain release\s+MATCH/.test(vr.out), 'dit verify rebuild --release 11 MATCH')
   } else console.log('SKIP  dit verify rebuild (commit 4c22d2f not in the local repo)')
 }
 
