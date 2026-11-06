@@ -17,6 +17,7 @@ RUN bun install --frozen-lockfile --production
 COPY apps apps
 COPY packages/sdk packages/sdk
 COPY packages/db packages/db
+COPY packages/indexer packages/indexer
 COPY deployments deployments
 COPY scripts/pg-to-sqlite.ts scripts/pg-to-sqlite.ts
 ARG GIT_COMMIT=dev
