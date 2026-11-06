@@ -138,7 +138,7 @@ The VS Code task workflow also runs from the terminal: `dit task assign 12 @dev 
 Limits: Arkiv, Swarm and L1 data is public by design; wallet addresses of public contributors are visible; the server is a member of every private repo and can read it.
 
 **Security.** SIWE login, hashed PATs, per-IP rate limits on auth, RBAC enforced in git `pre-receive`, containers with `cap_drop: ALL` and `no-new-privileges`, key-only SSH,
-Cloud Firewall (22/80/443), fail2ban. Contracts are tested with Foundry but **not audited**; keys in this repo's environment are testnet keys.
+Cloud Firewall (22/80/443), fail2ban. Contracts are tested with Foundry but **not audited**; the relayer and deployer keys hold real ETH on Base, so keep their balances small.
 
 **Verifiable frontend (the demo).** CI builds `apps/web` with `GIT_COMMIT=<sha>`; the build emits `build.json {commit, bundleHash, files}` where
 `bundleHash = sha256(JSON.stringify({file: "0x"+sha256(bytes)}) with keys sorted)`. `scripts/publish-release.ts` records `(commit, bundleHash, url)` in `DeployRegistry`,
@@ -156,7 +156,15 @@ different clients (the CRE nodes and your own run sample the same URL).
 
 ## Contract addresses
 
-Ethereum Sepolia (chain 11155111). Deploy addresses are read from `deployments/sepolia.json`:
+**Base mainnet (chain 8453)**, production. Addresses are read from `deployments/base.json`; both are verified on Basescan.
+
+| Contract | Address |
+| --- | --- |
+| DeployRegistry | [`0x9caa2fEB7880Bb81b7A3C3324c22C3293c65655e`](https://basescan.org/address/0x9caa2fEB7880Bb81b7A3C3324c22C3293c65655e) (deploy block 54011806) |
+| RefRegistry | [`0x458d41E371141655c5b04618875aF22F83809BC9`](https://basescan.org/address/0x458d41E371141655c5b04618875aF22F83809BC9) (deploy block 54011817) |
+| DeployAttestations | not deployed on Base yet (needs Chainlink CRE mainnet access) |
+
+Ethereum Sepolia (chain 11155111), the earlier testnet deployment; old anchors still verify there. Addresses are in `deployments/sepolia.json`:
 
 | Contract | Address |
 | --- | --- |
@@ -175,9 +183,9 @@ CRE wallet `0xB8Fc5e8C8B58a96b02980438Ed72EfE983100742`.
 
 ## Honest limitations
 
-- Arkiv is a testnet (Rabdi) and the L1 defaults to Base but production stays on Sepolia until cut over (`docs/base-mainnet.md`); no audit.
+- Arkiv is a testnet (Rabdi); the L1 is Base mainnet (`docs/base-mainnet.md`). The contracts are not audited.
 - Swarm runs on mainnet: postage costs real xBZZ on Gnosis Chain.
-- One server; API and worker share one SQLite file, so they cannot be split across hosts. Back up the `db` and `beedata` volumes (`sqlite3 dithub.sqlite ".backup out.sqlite"` is safe while running); the relayer key is a testnet key in `infra/prod.env`.
+- One server; API and worker share one SQLite file, so they cannot be split across hosts. Back up the `db` and `beemainnet` volumes (`sqlite3 dithub.sqlite ".backup out.sqlite"` is safe while running); the relayer key in `infra/prod.env` holds real ETH on Base mainnet, so keep it funded but small.
 - Swarm data lives only as long as its postage batch is topped up; Bee has no read proofs either.
 - Arkiv has no read proofs and anyone can write entities of our schema, so readers filter by the trusted writer address and verify hashes where possible; see `arkiv/friction.md`.
 - Arkiv entities need renewal (about 182.5 days max per purchase); a renewal drill has not been run end to end.

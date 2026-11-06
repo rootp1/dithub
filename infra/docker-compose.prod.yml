@@ -22,7 +22,7 @@ services:
       BEE_API_ADDR: ":1633"
       BEE_P2P_ADDR: ":1634"
       BEE_DATA_DIR: /home/bee/.bee
-    volumes: ["beedata:/home/bee/.bee"]   # node identity, chequebook state and batches: back this up
+    volumes: ["beemainnet:/home/bee/.bee"]   # mainnet only (beedata is the old Sepolia node); node identity, chequebook state and batches: back this up
     # no healthcheck: the image ships no curl/wget. The api reports Swarm reachability itself.
     restart: unless-stopped
     security_opt: ["no-new-privileges:true"]
@@ -51,4 +51,4 @@ services:
     volumes: ["./Caddyfile:/etc/caddy/Caddyfile:ro", "caddydata:/data", "caddyconfig:/config"]
     depends_on: { api: { condition: service_healthy } }
     restart: unless-stopped
-volumes: { db: {}, repos: {}, workerdata: {}, beedata: {}, caddydata: {}, caddyconfig: {} }
+volumes: { db: {}, repos: {}, workerdata: {}, beemainnet: {}, caddydata: {}, caddyconfig: {} }
