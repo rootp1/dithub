@@ -319,26 +319,64 @@ function patchPaths(numstatZ: string): string[] {
   return out
 }
 
+export const FILES_LIMITS = { count: 200, perFile: 1_000_000, total: 5_000_000 }
+export type ProposalFilesCheck =
+  | { ok: true; files: Array<{ path: string; content: string }> }
+  | { ok: false; status: 400 | 422; error: string; paths: string[] }
+
+/** Validate the files variant of a proposal: shape, size caps, path normalisation, duplicates and scope (pure, unit-tested). */
+export function checkProposalFiles(allowedPaths: string[], unrestrictedScope: boolean, files: unknown): ProposalFilesCheck {
+  if (!Array.isArray(files) || files.length < 1 || files.length > FILES_LIMITS.count) return { ok: false, status: 400, error: `files: 1-${FILES_LIMITS.count} entries required`, paths: [] }
+  const out: Array<{ path: string; content: string }> = [], bad: string[] = [], seen = new Set<string>()
+  let total = 0
+  for (const f of files as Array<{ path?: unknown; content?: unknown }>) {
+    if (!f || typeof f !== 'object' || typeof f.path !== 'string' || typeof f.content !== 'string') return { ok: false, status: 400, error: 'each file needs a string path and a string content', paths: [] }
+    const size = Buffer.byteLength(f.content, 'utf8')
+    if (size > FILES_LIMITS.perFile) return { ok: false, status: 400, error: `file larger than ${FILES_LIMITS.perFile} bytes`, paths: [f.path.slice(0, 200)] }
+    total += size
+    if (total > FILES_LIMITS.total) return { ok: false, status: 400, error: `files total more than ${FILES_LIMITS.total} bytes`, paths: [] }
+    const n = normalizeReadPath(f.path)
+    if (!n || !(unrestrictedScope || pathInScope(allowedPaths, n))) { bad.push(f.path.slice(0, 200)); continue }
+    if (seen.has(n)) return { ok: false, status: 400, error: 'duplicate path', paths: [n] }
+    seen.add(n); out.push({ path: n, content: f.content })
+  }
+  if (bad.length) return { ok: false, status: 422, error: 'files outside the session scope', paths: bad }
+  return { ok: true, files: out }
+}
+
 sessions.post('/sessions/:id/proposals', async (c) => {
   const user = await authenticate(c); if (!user) return c.json({ error: 'sign in first' }, 401)
   const scope = await loadSessionForUser(c.req.param('id')!, user.id)
   if (!scope) return c.json({ error: 'invalid, expired or revoked session' }, 403)
   const repo = (await repoById(scope.repoId))!
-  let b: { patch?: string; title?: string; body?: string }
+  let b: { patch?: string; title?: string; body?: string; files?: unknown }
   try { b = await c.req.json() } catch { return c.json({ error: 'invalid JSON' }, 400) }
-  if (typeof b.patch !== 'string' || !b.patch.trim() || b.patch.length > 1_000_000) return c.json({ error: 'patch (unified diff, <= 1 MB) is required' }, 400)
-  const patch = b.patch.endsWith('\n') ? b.patch : b.patch + '\n'
+  if (!b || typeof b !== 'object') return c.json({ error: 'invalid JSON' }, 400)
+  const filesVariant = b.files !== undefined
+  if (filesVariant && b.patch !== undefined) return c.json({ error: 'send either patch or files, not both' }, 400)
+  if (!filesVariant && (typeof b.patch !== 'string' || !b.patch.trim() || b.patch.length > 1_000_000)) return c.json({ error: 'patch (unified diff, <= 1 MB) or files[] is required' }, 400)
   const dir = repoPath(scope.repoIdHex)
   const reject = async (why: string, paths: string[] = []) => {
     await logSessionEvent(scope.id, user.id, 'proposal_rejected', { why, paths: paths.slice(0, 20) })
     return c.json({ error: why, paths: paths.slice(0, 20) }, 422)
   }
-  const ns = await gitx(dir, ['apply', '--numstat', '-z', '-'], { input: patch })
-  if (ns.code !== 0) return reject(`patch does not parse: ${ns.err.trim().slice(0, 300)}`)
-  const touched = patchPaths(ns.out).filter(Boolean)
-  if (!touched.length) return reject('patch changes no files')
-  const bad = touched.filter((p) => !unrestricted(scope) && !pathInScope(scope.allowedPaths, p))
-  if (bad.length) return reject('patch touches files outside the session scope', bad)
+  let patch = '', touched: string[] = [], files: Array<{ path: string; content: string }> = []
+  if (filesVariant) {
+    const chk = checkProposalFiles(scope.allowedPaths, unrestricted(scope), b.files)
+    if (!chk.ok) {
+      if (chk.status === 422) return reject(chk.error, chk.paths)
+      return c.json({ error: chk.error, paths: chk.paths }, 400)
+    }
+    files = chk.files
+  } else {
+    patch = b.patch!.endsWith('\n') ? b.patch! : b.patch! + '\n'
+    const ns = await gitx(dir, ['apply', '--numstat', '-z', '-'], { input: patch })
+    if (ns.code !== 0) return reject(`patch does not parse: ${ns.err.trim().slice(0, 300)}`)
+    touched = patchPaths(ns.out).filter(Boolean)
+    if (!touched.length) return reject('patch changes no files')
+    const bad = touched.filter((p) => !unrestricted(scope) && !pathInScope(scope.allowedPaths, p))
+    if (bad.length) return reject('patch touches files outside the session scope', bad)
+  }
 
   const branch = `session/${scope.issueNumber}-${user.login}`
   const ref = `refs/heads/${branch}`
@@ -352,15 +390,45 @@ sessions.post('/sessions/:id/proposals', async (c) => {
   try {
     const env = { GIT_INDEX_FILE: join(tmp, 'index') }
     if ((await gitx(dir, ['read-tree', parent], { env })).code !== 0) return c.json({ error: 'could not read tree' }, 500)
-    const ap = await gitx(dir, ['apply', '--cached', '--whitespace=nowarn', '-'], { env, input: patch })
-    if (ap.code !== 0) return reject(`patch does not apply: ${ap.err.trim().slice(0, 300)}`)
+    if (filesVariant) {
+      // Build the change server-side: hash each file into the object store and stage it on a temporary index (no worktree).
+      const ls = await gitx(dir, ['ls-tree', '-r', '-z', '--full-tree', parent])
+      if (ls.code !== 0) return c.json({ error: 'could not read tree' }, 500)
+      const existing = new Map<string, { mode: string; oid: string }>()
+      for (const rec of ls.out.split('\0')) {
+        const tab = rec.indexOf('\t'); if (tab < 0) continue
+        const [mode, , oid] = rec.slice(0, tab).split(/\s+/)
+        existing.set(rec.slice(tab + 1), { mode: mode!, oid: oid! })
+      }
+      const isDir = (p: string) => { const pre = p + '/'; for (const k of existing.keys()) if (k.startsWith(pre)) return true; return false }
+      const fileAbove = (p: string) => { const s = p.split('/'); for (let i = 1; i < s.length; i++) if (existing.has(s.slice(0, i).join('/'))) return true; return false }
+      const conflicts = files.filter((f) => isDir(f.path) || fileAbove(f.path)).map((f) => f.path)
+      if (conflicts.length) return reject('path conflicts with an existing directory or file', conflicts)
+      const special = files.filter((f) => { const m = existing.get(f.path)?.mode; return m !== undefined && m !== '100644' && m !== '100755' }).map((f) => f.path)
+      if (special.length) return reject('symlinks and submodules cannot be edited', special)
+      const lines: string[] = []
+      for (const f of files) {
+        const h = await gitx(dir, ['hash-object', '-w', '--no-filters', '--stdin'], { input: f.content })
+        if (h.code !== 0) throw new Error(h.err)
+        const oid = h.out.trim(), prev = existing.get(f.path)
+        if (prev && prev.oid === oid) continue                                   // identical to the base: ignored
+        lines.push(`${prev?.mode ?? '100644'} ${oid}\t${f.path}`)
+        touched.push(f.path)
+      }
+      if (!lines.length) { await logSessionEvent(scope.id, user.id, 'proposal_rejected', { why: 'no changes', paths: [] }); return c.json({ error: 'no changes' }, 422) }
+      const ui = await gitx(dir, ['update-index', '--add', '-z', '--index-info'], { env, input: lines.join('\0') + '\0' })
+      if (ui.code !== 0) return reject(`could not stage files: ${ui.err.trim().slice(0, 300)}`)
+    } else {
+      const ap = await gitx(dir, ['apply', '--cached', '--whitespace=nowarn', '-'], { env, input: patch })
+      if (ap.code !== 0) return reject(`patch does not apply: ${ap.err.trim().slice(0, 300)}`)
+    }
     // belt and braces: the whole branch diff against the session base must stay in scope
     const all = await gitx(dir, ['diff', '--cached', '--name-only', '-z', '--no-renames', baseTip], { env })
     const outside = all.out.split('\0').filter((p) => p && !unrestricted(scope) && !pathInScope(scope.allowedPaths, p))
     if (outside.length) return reject('resulting change touches files outside the session scope', outside)
     const tree = (await gitx(dir, ['write-tree'], { env })).out.trim()
     const parentTree = (await gitx(dir, ['rev-parse', `${parent}^{tree}`])).out.trim()
-    if (tree === parentTree) return reject('patch produces no change')
+    if (tree === parentTree) return filesVariant ? c.json({ error: 'no changes' }, 422) : reject('patch produces no change')
     const title = (typeof b.title === 'string' && b.title.trim() ? b.title.trim() : `Proposal for issue #${scope.issueNumber}`).slice(0, 300)
     const id = { GIT_AUTHOR_NAME: user.login, GIT_AUTHOR_EMAIL: `${user.login}@users.noreply.dithub`, GIT_COMMITTER_NAME: user.login, GIT_COMMITTER_EMAIL: `${user.login}@users.noreply.dithub` }
     const cm = await gitx(dir, ['commit-tree', tree, '-p', parent, '-F', '-'], { env: id, input: `${title}\n\nSession-Issue: #${scope.issueNumber}\n` })
@@ -373,11 +441,11 @@ sessions.post('/sessions/:id/proposals', async (c) => {
     const [open] = await sql`SELECT i.number, p.issue_id FROM pull_requests p JOIN issues i ON i.id = p.issue_id WHERE p.repo_id = ${repo.id} AND p.head_ref = ${branch} AND p.state = 'open'`
     if (open) prNumber = Number(open.number)
     else {
-      const pr = await createPullRequest({ repo, user, title, body: (b.body ?? '').slice(0, 20_000) + `\n\nProposal from a task-scoped session for issue #${scope.issueNumber}.`, head: branch, base: scope.ref, sessionId: scope.id })
+      const pr = await createPullRequest({ repo, user, title, body: (typeof b.body === 'string' ? b.body : '').slice(0, 20_000) + `\n\nProposal from a task-scoped session for issue #${scope.issueNumber}.`, head: branch, base: scope.ref, sessionId: scope.id })
       if (!pr.ok) return c.json({ error: pr.error }, pr.status)
       prNumber = pr.number
     }
-    await logSessionEvent(scope.id, user.id, 'proposal', { branch, commit, pr: prNumber, files: touched.length })
+    await logSessionEvent(scope.id, user.id, 'proposal', { branch, commit, pr: prNumber, files: touched.length, ...(filesVariant ? { variant: 'files' } : {}) })
     return c.json({ branch, commit: `0x${commit}`, pullRequest: prNumber, files: touched.length }, 201)
   } finally { try { rmSync(tmp, { recursive: true, force: true }) } catch { /* best effort */ } }
 })

@@ -100,3 +100,28 @@ Create, end and revoke call `recordRbac` (`session.create`, `session.end`, `sess
 ### Helpers for other server code (`apps/api/src/sessions.ts`)
 
 `loadSessionForUser(sessionId, userId)`, `pathInScope(allowedPaths, path)`, `logSessionEvent(sessionId, actorId, kind, detail)`, `resolveAccess(c, repo, need)`.
+
+## VS Code flow (scope suggestions, task inbox, repo picker, files proposals)
+
+Migration `packages/db/migrations/0010_vscode_flow.sql` (`scope_suggestions`). Code: `apps/api/src/suggest-scope.ts`, `apps/api/src/tasks.ts`, `apps/api/src/sessions.ts` (proposals). Unit tests: `bun test apps/api/test`. End to end (live 0G): `BASE_URL=http://localhost:3400 bun scripts/e2e-vscode-flow.ts` with `DHEET_SEAT_KEY` (maintainer) and `DHEET_STRANGER_KEY` (developer) in the environment.
+
+Flow: the maintainer picks an issue, asks 0G for the relevant paths (`suggest-scope`), reviews them, assigns the issue (`POST R/issues/:n/assignees`) and creates a contractor session with the approved paths (`POST R/sessions`). The developer never gets repository access: `GET /api/tasks` lists their sessions, reads go through `R/tree` and `R/blob` with `x-dheet-session`, the assistant through `/api/sessions/:id/assistant/*`, and edits come back as a PR via `POST /api/sessions/:id/proposals` (files variant).
+
+| Method and path | Access | Notes |
+|---|---|---|
+| `POST R/issues/:n/suggest-scope` `{maxPaths?: 1..25 (default 8), ref?}` | signed in, maintain+ | `200 {paths:[{path, kind: file\|dir, reason}], model, requestId, sealed, ref, considered}`. 401 anonymous; 404 unknown repo/issue or a repo the caller cannot read; 403 readable but below maintain; 400 bad body/ref; 422 unknown ref; 429 more than 20 calls/hour/user (failed calls count); 502 `{error, requestId?}` when 0G fails or returns no valid path; 503 when 0G is not configured |
+| `GET /api/tasks` | signed in | `{tasks:[{sessionId, repo:{owner,name}, issue:{number,title,state}, role, allowedPaths, ref, status: active\|ended\|expired\|revoked, expiresAt, createdAt, createdBy}]}`: every session whose user is the caller, active first then newest (max 500). Needs no repository permission. Revoked = ended by a maintainer's revoke |
+| `GET /api/me/repos?min=read\|triage\|write\|maintain\|admin` | signed in | `{repos:[{owner, name, visibility, permission, defaultBranch, repoId}]}`: repos the caller has a role in (owner, org member, team grant, collaborator; site admins: all) at `min` or above; `permission` is the effective level. Public repos with no relationship are not listed; sessions never count. 400 on a bad `min` |
+| `POST /api/sessions/:id/proposals` `{files:[{path, content}], title?, body?}` | the session user | files variant, see below. The `{patch}` variant is unchanged; sending both is 400 |
+
+### suggest-scope
+
+1. Candidates: `git ls-tree -r <ref>` on the bare repo, minus binaries (by extension), lockfiles, `node_modules`, `dist`, `vendor`, `.git` and similar build/vendored dirs.
+2. Ranking: keyword overlap (light stemming) between the issue title/body and the path. The model gets at most 1,500 paths (most relevant kept) and, for up to 40 top-ranked files, the first 25 lines (lines cut at 200 chars, 30 KB total).
+3. Prompt: the issue is wrapped in random `<ISSUE_xxxxxxxxxxxx>` markers and declared untrusted; the model is told to ignore instructions inside it, to pick only listed paths, the minimal set (files or the narrowest directory), never the root, and to answer with `{"paths":[{"path","reason"}]}` only. The call goes through `chat` in `zerog.ts` (0G Private Computer, private trust tier, with its sealed-model fallback).
+4. Validation (`validateSuggestion`, pure): first JSON object (code fences/prose tolerated); paths normalised (`./` and trailing `/` stripped; absolute, `..`, `.`/empty segments, globs, control/bidi characters, `.git`, root rejected); kept only if an exact file or a real directory prefix (segment boundary) of the listed tree; deduplicated; entries inside another returned directory dropped; capped to `maxPaths`; reasons cut to 200 chars. Nothing valid -> 502, paths are never invented.
+5. Records: one `scope_suggestions` row per call (validated paths, model, 0G request id; failures with `error`), and an `audit_log` row `issue.suggest_scope` with `{issue, pathCount, model, requestId}` only (no paths, no issue text).
+
+### Proposals: files variant
+
+`{files:[{path, content}]}` with 1-200 files, each <= 1 MB of UTF-8 and <= 5 MB in total (else 400). Every path is normalised like a read path and must satisfy `pathInScope` (else `422 {error, paths}`, logged as `proposal_rejected`); new files are allowed only inside the scope; duplicate paths are 400. The server builds the change itself on top of the session branch tip (or the session ref when the branch does not exist yet): each file is written with `git hash-object -w --stdin`, staged with `update-index --index-info` on a temporary `GIT_INDEX_FILE` (existing executable bits kept, symlinks/submodules not editable, file/directory collisions rejected), files identical to the base are skipped, and when nothing changes the answer is `422 {error: 'no changes'}`. Then the same path as the patch variant: full-diff scope re-check against the session base, `write-tree`, `commit-tree`, compare-and-swap `update-ref` on `session/<issue>-<login>`, recorded as a push, PR opened (or reused). Response `201 {branch, commit, pullRequest, files}` (`files` = files actually changed); session event `proposal` (with `variant: 'files'`).

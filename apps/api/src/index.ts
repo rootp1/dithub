@@ -15,6 +15,8 @@ import { assistant } from './assistant.ts'
 import { deployments } from './deployments.ts'
 import { cliAuth } from './cli-auth.ts'
 import { sessions, resolveAccess, scopeGuard, filterTree, scopedCommits, logSessionEvent } from './sessions.ts'
+import { suggestScope } from './suggest-scope.ts'
+import { tasks } from './tasks.ts'
 
 requireConfig()
 // Keep every bare repo's hooks in step with this release.
@@ -91,6 +93,8 @@ app.route('/api', sessions)
 app.route('/', assistant)
 app.route('/api', deployments)
 app.route('/', cliAuth)
+app.route('/api', suggestScope)
+app.route('/api', tasks)
 
 // ---------- repos ----------
 const nameOk = (n: string) => /^[A-Za-z0-9._-]{1,100}$/.test(n) && n !== '.' && n !== '..' && !n.endsWith('.git')

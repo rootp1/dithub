@@ -25,7 +25,7 @@ jobs:
       - run: bun run build
       - name: Build production web bundle (deterministic build.json; the web verify tests compare against it)
         run: GIT_COMMIT=${{ github.sha }} bun apps/web/build.ts
-      - run: bun test packages/sdk/test packages/e2e/local-flow.test.ts packages/dit apps/web/src
+      - run: bun test packages/sdk/test packages/e2e/local-flow.test.ts packages/dit apps/web/src apps/api/test
 
   contracts:
     runs-on: ubuntu-latest
