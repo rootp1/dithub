@@ -40,6 +40,13 @@
         "@dithub/sdk": "workspace:*",
       },
     },
+    "packages/dit": {
+      "name": "@dithub/dit",
+      "version": "0.1.0",
+      "bin": {
+        "dit": "./src/index.ts",
+      },
+    },
     "packages/indexer": {
       "name": "@dithub/indexer",
       "version": "0.1.0",
@@ -76,6 +83,8 @@
     "@dithub/app-worker": ["@dithub/app-worker@workspace:apps/worker"],
 
     "@dithub/cli": ["@dithub/cli@workspace:packages/cli"],
+
+    "@dithub/dit": ["@dithub/dit@workspace:packages/dit"],
 
     "@dithub/indexer": ["@dithub/indexer@workspace:packages/indexer"],
 
