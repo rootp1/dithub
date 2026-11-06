@@ -31,8 +31,11 @@ mkdirSync(WORK_DIR, { recursive: true })
 const store = new LocalNetworkStore(`${WORK_DIR}/network`)
 
 const swarmConfig = swarmConfigFromEnv()
-const swarm = swarmConfig ? createSwarmClient(swarmConfig) : null
+// Uploads need a postage batch. Without one the worker skips Swarm entirely: Swarm runs before Arkiv, so a node that cannot
+// store anything (unfunded, no batch) would otherwise block every push from reaching Arkiv.
+const swarm = swarmConfig?.postageBatchId ? createSwarmClient(swarmConfig) : null
 if (swarm) console.log(`swarm: ${swarmConfig!.beeUrl} (${await swarm.health().catch(() => false) ? 'healthy' : 'not reachable yet'})`)
+else if (swarmConfig) console.log('swarm: BEE_POSTAGE_BATCH_ID not set, uploads off (code still goes to Arkiv)')
 
 const arkiv: WorkerArkiv = {
   relayer: conn.account.address,
