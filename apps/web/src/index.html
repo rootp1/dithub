@@ -2,11 +2,25 @@
 <html lang="en">
 <head>
   <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" media="(prefers-color-scheme: light)" content="#f6f8fa">
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0d1117">
   <title>Dheet</title><link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header class="top"><a class="brand" href="/">dheet</a><nav id="nav"></nav></header>
-  <main id="app"></main>
+  <a class="skip-link" href="#app">Skip to content</a>
+  <header class="top">
+    <div class="top-inner">
+      <a class="brand" href="/" aria-label="Dheet home">
+        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true">
+          <path d="M8 7.5v10.75A5.75 5.75 0 0 0 13.75 24H24"/>
+          <circle cx="8" cy="7.5" r="3"/><circle cx="8" cy="17" r="3"/><circle cx="24" cy="24" r="3"/>
+        </svg>
+        <span>dheet</span>
+      </a>
+      <nav id="nav" aria-label="Main navigation"></nav>
+    </div>
+  </header>
+  <main id="app" tabindex="-1"><div class="loading-state" role="status"><span class="spinner" aria-hidden="true"></span>Loading workspace…</div></main>
   <script type="module" src="/app.js"></script>
 </body>
 </html>

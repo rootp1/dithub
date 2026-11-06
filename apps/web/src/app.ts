@@ -34,27 +34,41 @@ async function connect() {
 }
 
 function renderNav() {
+  const path = location.pathname
+  const section = path.split('/').filter(Boolean)[0]
+  const inRepository = !section || !['new', 'deployments', 'sessions', 'settings', 'orgs'].includes(section)
+  const link = (href: string, label: string, exact = false) => {
+    const current = href === '/' ? inRepository : exact ? path === href : path === href || path.startsWith(`${href}/`)
+    return `<a class="nav-link${current ? ' current' : ''}" href="${href}"${current ? ' aria-current="page"' : ''}>${label}</a>`
+  }
+  const avatar = esc((me?.login || '?').slice(0, 1).toUpperCase())
   nav.innerHTML = me
-    ? `<a href="/new">New repo</a><a href="/orgs/new">New org</a><a href="/sessions">My sessions</a><a href="/deployments">Deployments</a><a href="/settings">${esc(me.login)}</a><button class="ghost" id="out">Sign out</button>`
-    : `<a href="/deployments">Deployments</a><button id="in">Connect wallet</button>`
+    ? `<div class="nav-pages">${link('/', 'Repositories', true)}${link('/deployments', 'Deployments')}${link('/sessions', 'Sessions')}</div>
+      <div class="nav-actions"><a class="nav-link hide-compact" href="/orgs/new">New organisation</a><a class="btn nav-create" href="/new">New repository</a>
+      <a class="user-link${path === '/settings' ? ' current' : ''}" href="/settings"${path === '/settings' ? ' aria-current="page"' : ''}><span class="avatar" aria-hidden="true">${avatar}</span><span class="user-name">${esc(me.login)}</span></a>
+      <button class="icon-button" id="out" title="Sign out" aria-label="Sign out"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6.5 2.5h-3v11h3M9.5 5l3 3-3 3M12.5 8h-7"/></svg></button></div>`
+    : `<div class="nav-pages">${link('/', 'Repositories', true)}${link('/deployments', 'Deployments')}</div><div class="nav-actions"><button id="in">Connect wallet</button></div>`
   document.getElementById('in')?.addEventListener('click', () => connect().catch((e) => alert(e.message)))
   document.getElementById('out')?.addEventListener('click', async () => { await api('/api/auth/logout', { method: 'POST' }); me = null; render() })
 }
 
 async function home() {
   const { repos } = await api<{ repos: any[] }>('/api/repos')
-  app.innerHTML = `<h1>Repositories</h1><div class="card list">${repos.map((r) => `
-    <div><a href="/${esc(r.owner)}/${esc(r.name)}"><b>${esc(r.owner)}/${esc(r.name)}</b></a>
-    <span class="chip">${esc(r.visibility)}</span><div class="muted">${esc(r.description ?? '')}</div>
-    <div class="muted mono">repoId ${short(r.repoId)}</div></div>`).join('') || '<p class="muted">No repositories yet.</p>'}</div>`
+  app.innerHTML = `<header class="page-heading"><div><p class="eyebrow">Workspace</p><h1>Repositories</h1><p class="page-description">Browse code, collaborate, and verify every release from one place.</p></div>${me ? '<a class="btn" href="/new">New repository</a>' : ''}</header>
+    <div class="card list repo-list">${repos.map((r) => `
+    <div class="repo-row"><div class="repo-icon" aria-hidden="true">⌘</div><div class="grow"><div class="repo-title"><a href="/${esc(r.owner)}/${esc(r.name)}"><b>${esc(r.owner)}/${esc(r.name)}</b></a>
+    <span class="chip">${esc(r.visibility)}</span></div><div class="muted repo-description">${esc(r.description ?? 'No description provided.')}</div>
+    <div class="muted mono repo-id">${short(r.repoId)}</div></div><span class="row-arrow" aria-hidden="true">›</span></div>`).join('') || `<div class="empty-state"><div class="empty-icon" aria-hidden="true">⌘</div><h2>No repositories yet</h2><p class="muted">${me ? 'Create a repository to start collaborating.' : 'Connect your wallet to create your first repository.'}</p>${me ? '<a class="btn" href="/new">Create repository</a>' : ''}</div>`}</div>`
 }
 
 function newRepo() {
   if (!me) { app.innerHTML = '<div class="card">Connect your wallet to create a repository.</div>'; return }
-  app.innerHTML = `<h1>Create a repository</h1><form class="card" id="f"><div class="row">
-    <input id="org" placeholder="organisation (optional)"><span>/</span><input id="name" placeholder="repo-name" required class="grow"></div>
-    <p><select id="vis"><option>public</option><option>private</option></select></p>
-    <p><input id="desc" placeholder="description" style="width:100%"></p><button>Create</button> <span id="e" class="err"></span></form>`
+  app.innerHTML = `<header class="page-heading"><div><p class="eyebrow">New repository</p><h1>Create a repository</h1><p class="page-description">A repository contains your code, issues, pull requests, and verifiable history.</p></div></header>
+    <form class="card form-card" id="f"><div class="form-section"><div class="row repo-name-fields">
+    ${field('org', 'Owner', '<input id="org" placeholder="organisation (optional)" autocomplete="off">')}<span class="path-divider" aria-hidden="true">/</span>${field('name', 'Repository name', '<input id="name" placeholder="repo-name" required class="grow" autocomplete="off">')}</div>
+    ${field('desc', 'Description (optional)', '<input id="desc" placeholder="A short description of this repository" style="width:100%">')}
+    ${field('vis', 'Visibility', '<select id="vis"><option value="public">Public — anyone can see this repository</option><option value="private">Private — only approved collaborators have access</option></select>')}</div>
+    <div class="form-actions"><button>Create repository</button><a class="btn secondary" href="/">Cancel</a><span id="e" class="err" role="alert"></span></div></form>`
   document.getElementById('f')!.addEventListener('submit', async (ev) => {
     ev.preventDefault()
     try {
@@ -84,9 +98,10 @@ const del = (path: string) => api(path, { method: 'DELETE' })
 
 function newOrg() {
   if (!me) { app.innerHTML = '<div class="card">Connect your wallet first.</div>'; return }
-  app.innerHTML = `<h1>Create an organisation</h1><div class="card"><div class="row"><input id="ol" placeholder="org-name" class="grow">
-    <select id="ov"><option value="public">public (role changes are verifiable)</option><option value="private">private (not on-chain)</option></select></div>
-    <p><button id="mk">Create</button></p></div>`
+  app.innerHTML = `<header class="page-heading"><div><p class="eyebrow">New organisation</p><h1>Create an organisation</h1><p class="page-description">Bring repositories and collaborators together under a shared, verifiable identity.</p></div></header>
+    <div class="card form-card"><div class="form-section">${field('ol', 'Organisation name', '<input id="ol" placeholder="organisation-name" class="grow" autocomplete="off">')}
+    ${field('ov', 'Visibility', '<select id="ov"><option value="public">Public — role changes are verifiable</option><option value="private">Private — role changes stay off-chain</option></select>')}</div>
+    <div class="form-actions"><button id="mk">Create organisation</button><a class="btn secondary" href="/">Cancel</a></div></div>`
   act('mk', async () => { const r = await api('/api/orgs', { method: 'POST', body: JSON.stringify({ login: val('ol'), visibility: (document.getElementById('ov') as HTMLSelectElement).value }) }); history.pushState({}, '', `/orgs/${r.org.login}`) })
 }
 
@@ -165,8 +180,8 @@ async function repoPage(owner: string, name: string, tab: string, params: URLSea
     body = `<div class="card"><h2>L1 anchors</h2><div class="list">${l.anchors.map((a: any) => `<div class="mono">${esc(a.ref_name.slice(0, 40))} · seq ${esc(a.ref_sequence)} · <a href="${etherscan(a.chain_id, '0x' + a.tx)}" target="_blank" rel="noopener">0x${esc(a.tx.slice(0, 10))}…</a></div>`).join('') || '<p class="muted">None yet.</p>'}</div></div>
       <div class="card"><h2>Arkiv entities</h2><div class="list">${l.entities.map((e: any) => `<div class="mono"><span class="chip">${esc(e.schema)}</span> 0x${esc(e.entity.slice(0, 14))}… · expires block ${esc(e.expires_at_block)}</div>`).join('') || '<p class="muted">None yet.</p>'}</div></div>`
   }
-  app.innerHTML = `<h1>${esc(owner)} / ${esc(name)} <span class="chip">${esc(repo.visibility)}</span></h1>
-    <p class="muted">${esc(repo.description ?? '')} <span class="mono">repoId ${short(repo.repoId)}</span></p><nav class="tabs" aria-label="Repository">${tabs}</nav>${body}`
+  app.innerHTML = `<header class="repo-heading"><div class="repo-heading-icon" aria-hidden="true">⌘</div><div class="grow"><div class="repo-heading-title"><h1><span>${esc(owner)}</span><span class="repo-slash">/</span>${esc(name)}</h1><span class="chip">${esc(repo.visibility)}</span></div>
+    <p class="muted">${esc(repo.description ?? 'No description provided.')} <span class="mono repo-meta-id">${short(repo.repoId)}</span></p></div></header><nav class="tabs" aria-label="Repository">${tabs}</nav>${body}`
   wire?.()
 }
 
