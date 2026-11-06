@@ -169,7 +169,7 @@ async function renewal() {
   console.log(`renewed ${results.length} Arkiv entities`)
 }
 
-console.log(`dheet worker started, relayer ${relayer}`)
+console.log(`dithub worker started, relayer ${relayer}`)
 await sql`UPDATE outbox SET status = 'pending' WHERE status = 'processing'`   // crash recovery
 startDeploymentMirror({ sql, arkiv, relayer })   // Sepolia DeployRegistry/Attestations -> Postgres + Arkiv (own loop)
 let lastRenewal = 0

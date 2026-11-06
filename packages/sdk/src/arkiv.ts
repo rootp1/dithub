@@ -174,7 +174,7 @@ export async function uploadManifestToArkiv(args: {
   for (const object of manifest.objects) {
     for (const descriptor of object.chunks) {
       await createChunk({
-        oid: object.dheetOid,
+        oid: object.dithubOid,
         gitOid: object.gitOid,
         gitAlg: object.gitAlgorithm,
         objectKind: object.type,

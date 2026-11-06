@@ -1,4 +1,4 @@
-# Arkiv entity schemas used by Dheet
+# Arkiv entity schemas used by Dithub
 
 All entities are created on Arkiv Rabdi through `@arkiv-network/sdk` with `defineSchema`, flags `{ readonly: true, permissionlessExtension: true }` and
 `ExpirationTime.max()` (capped at 7,884,000 blocks, about 182.5 days; the worker renews them). Sources: `packages/sdk/src/arkiv.ts`, `packages/sdk/src/activity.ts`.

@@ -26,7 +26,7 @@ async function load(): Promise<void> {
   const repos = await response.json() as RepoRow[]
   byId('status').textContent = 'index verified online'
   byId('count').textContent = `${repos.length} indexed`
-  byId('repos').innerHTML = repos.map((repo) => `<button class="repo" data-id="${escapeHtml(repo.repo_id)}"><span class="seq">SEQ ${repo.sequence}</span><h3>${escapeHtml(repo.name)}</h3><p>${repo.object_count} objects · ${Object.keys(JSON.parse(repo.refs_json)).length} refs</p><code>${short(repo.manifest_hash)}</code><span class="open">Inspect →</span></button>`).join('') || '<p class="empty">No repositories indexed yet. Publish with the Dheet CLI, then restart the indexer.</p>'
+  byId('repos').innerHTML = repos.map((repo) => `<button class="repo" data-id="${escapeHtml(repo.repo_id)}"><span class="seq">SEQ ${repo.sequence}</span><h3>${escapeHtml(repo.name)}</h3><p>${repo.object_count} objects · ${Object.keys(JSON.parse(repo.refs_json)).length} refs</p><code>${short(repo.manifest_hash)}</code><span class="open">Inspect →</span></button>`).join('') || '<p class="empty">No repositories indexed yet. Publish with the Dithub CLI, then restart the indexer.</p>'
   document.querySelectorAll<HTMLButtonElement>('.repo').forEach((button) => { button.onclick = () => void showRepo(button.dataset.id ?? '') })
 }
 

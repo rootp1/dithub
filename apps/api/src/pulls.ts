@@ -308,7 +308,7 @@ async function mergeBlockers(repo: RepoRow, p: Record<string, any>): Promise<str
 }
 
 const identity = (name: string, email: string, date?: string) => ({ GIT_AUTHOR_NAME: name, GIT_AUTHOR_EMAIL: email, GIT_COMMITTER_NAME: name, GIT_COMMITTER_EMAIL: email, ...(date ? { GIT_AUTHOR_DATE: date } : {}) })
-const noreply = (login: string) => `${login}@users.noreply.dheet`
+const noreply = (login: string) => `${login}@users.noreply.dithub`
 
 async function commitTree(dir: string, tree: string, parents: string[], message: string, env: Record<string, string>) {
   const r = await gitx(dir, ['commit-tree', tree, ...parents.flatMap((x) => ['-p', x]), '-F', '-'], { env, input: message })

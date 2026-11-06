@@ -1,4 +1,4 @@
--- Dheet platform schema v1 (generated from PLATFORM_PLAN.md section 4)
+-- Dithub platform schema v1 (generated from PLATFORM_PLAN.md section 4)
 CREATE EXTENSION IF NOT EXISTS citext;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
@@ -58,7 +58,7 @@ CREATE TABLE orgs (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   login citext UNIQUE NOT NULL,                    -- shares the namespace with users (enforced by trigger)
   display_name text, description text, avatar_url text,
-  ens_name text,                                   -- e.g. dheetorg2644.eth, the org's seat registry name
+  ens_name text,                                   -- e.g. dithuborg2644.eth, the org's seat registry name
   ens_registry bytea,                              -- UserRegistry address (seats)
   ref_registry bytea,                              -- RefRegistry address (L1 anchor)
   chain_id integer,
@@ -149,7 +149,7 @@ CREATE TABLE git_refs (
 CREATE TABLE commits (
   repo_id bigint REFERENCES repos(id) ON DELETE CASCADE,
   oid bytea NOT NULL,                                        -- git OID (20 or 32 bytes)
-  dheet_oid bytea,                                           -- SHA-256 Dheet OID
+  dheet_oid bytea,                                           -- SHA-256 Dithub OID
   tree_oid bytea NOT NULL, parent_oids bytea[] NOT NULL,
   author_name text, author_email text, author_user_id bigint REFERENCES users(id),
   authored_at timestamptz NOT NULL, committed_at timestamptz NOT NULL,

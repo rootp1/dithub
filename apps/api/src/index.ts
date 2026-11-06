@@ -233,7 +233,7 @@ app.all('/git/:owner/:repo/*', async (c) => {
     // Clone/fetch hands over the whole history: only maintainer-role sessions may use it; pushes are never granted by a session.
     const acc = await resolveAccess(c, repo, 'read')
     if (!acc.ok) return new Response(acc.error ?? 'forbidden', acc.status === 401
-      ? { status: 401, headers: { 'www-authenticate': 'Basic realm="Dheet (use a personal access token as password)"' } } : { status: 403 })
+      ? { status: 401, headers: { 'www-authenticate': 'Basic realm="Dithub (use a personal access token as password)"' } } : { status: 403 })
     if (acc.scope!.role !== 'maintainer') {
       await logSessionEvent(acc.scope!.id, acc.scope!.userId, 'clone_denied', { push: isPush })
       return new Response('git clone/fetch is not allowed for scoped sessions; use /api/sessions/:id/export', { status: 403 })
@@ -242,7 +242,7 @@ app.all('/git/:owner/:repo/*', async (c) => {
   }
   if (isPush ? !(user && (await can(user, repo, 'write'))) : !(await can(user, repo, 'read'))) {
     return new Response(user ? 'forbidden' : 'authentication required', {
-      status: user ? 403 : 401, headers: user ? {} : { 'www-authenticate': 'Basic realm="Dheet (use a personal access token as password)"' },
+      status: user ? 403 : 401, headers: user ? {} : { 'www-authenticate': 'Basic realm="Dithub (use a personal access token as password)"' },
     })
   }
   return runGit()
@@ -258,4 +258,4 @@ app.get('*', async (c) => {
 })
 
 export default { port: config.port, fetch: app.fetch, idleTimeout: 120 }
-console.log(`dheet api listening on ${config.publicUrl}`)
+console.log(`dithub api listening on ${config.publicUrl}`)

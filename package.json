@@ -1,5 +1,5 @@
 {
-  "name": "dheet",
+  "name": "dithub",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -11,8 +11,8 @@
   "scripts": {
     "build": "bun run build:sdk && bun run build:cli && bun run build:remote && bun run build:indexer && bun run build:web",
     "build:sdk": "bun build packages/sdk/src/index.ts --outdir packages/sdk/dist --target node",
-    "build:cli": "bun build packages/cli/src/index.ts --outfile packages/cli/dist/dheet.mjs --target node",
-    "build:remote": "bun build packages/remote-helper/src/index.ts --outfile packages/remote-helper/dist/git-remote-dheet.mjs --target node",
+    "build:cli": "bun build packages/cli/src/index.ts --outfile packages/cli/dist/dithub.mjs --target node",
+    "build:remote": "bun build packages/remote-helper/src/index.ts --outfile packages/remote-helper/dist/git-remote-dithub.mjs --target node",
     "build:indexer": "bun build packages/indexer/src/index.ts --outfile packages/indexer/dist/index.mjs --target bun",
     "build:web": "bun packages/web/build.ts",
     "indexer": "bun packages/indexer/src/index.ts",

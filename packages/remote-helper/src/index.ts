@@ -40,7 +40,7 @@ function readLines(): AsyncIterable<string> {
 
 async function main(): Promise<void> {
   const url = process.argv[3] ?? process.argv[2]
-  if (!url) throw new Error('Missing Dheet remote URL')
+  if (!url) throw new Error('Missing Dithub remote URL')
   const parsed = parseRepositoryRemoteUrl(url)
   const store = new LocalNetworkStore(parsed.networkPath)
 

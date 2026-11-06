@@ -18,47 +18,49 @@
       },
     },
     "apps/api": {
-      "name": "@dheet/app-api",
+      "name": "@dithub/app-api",
       "dependencies": {
         "hono": "4.9.9",
       },
     },
     "apps/web": {
-      "name": "@dheet/app-web",
+      "name": "@dithub/app-web",
     },
     "apps/worker": {
-      "name": "@dheet/app-worker",
+      "name": "@dithub/app-worker",
     },
     "packages/cli": {
-      "name": "@dheet/cli",
+      "name": "@dithub/cli",
       "version": "0.1.0",
       "bin": {
+        "dithub": "./src/index.ts",
         "dheet": "./src/index.ts",
       },
       "dependencies": {
-        "@dheet/sdk": "workspace:*",
+        "@dithub/sdk": "workspace:*",
       },
     },
     "packages/indexer": {
-      "name": "@dheet/indexer",
+      "name": "@dithub/indexer",
       "version": "0.1.0",
     },
     "packages/remote-helper": {
-      "name": "@dheet/remote-helper",
+      "name": "@dithub/remote-helper",
       "version": "0.1.0",
       "bin": {
+        "git-remote-dithub": "./src/index.ts",
         "git-remote-dheet": "./src/index.ts",
       },
       "dependencies": {
-        "@dheet/sdk": "workspace:*",
+        "@dithub/sdk": "workspace:*",
       },
     },
     "packages/sdk": {
-      "name": "@dheet/sdk",
+      "name": "@dithub/sdk",
       "version": "0.1.0",
     },
     "packages/web": {
-      "name": "@dheet/web",
+      "name": "@dithub/web",
       "version": "0.1.0",
     },
   },
@@ -67,21 +69,21 @@
 
     "@arkiv-network/sdk": ["@arkiv-network/sdk@1.0.1", "", { "peerDependencies": { "typescript": ">=5.0.0", "viem": "^2.0.0" }, "optionalPeers": ["typescript"] }, "sha512-DCOFdGunn4I5nYrvIV/YIkMCkLZM7EQNSyNPtqpmQkP2JzTEfRLBJleBSB2rokWMa833/9P8DMiwsEXACr3CUQ=="],
 
-    "@dheet/app-api": ["@dheet/app-api@workspace:apps/api"],
+    "@dithub/app-api": ["@dithub/app-api@workspace:apps/api"],
 
-    "@dheet/app-web": ["@dheet/app-web@workspace:apps/web"],
+    "@dithub/app-web": ["@dithub/app-web@workspace:apps/web"],
 
-    "@dheet/app-worker": ["@dheet/app-worker@workspace:apps/worker"],
+    "@dithub/app-worker": ["@dithub/app-worker@workspace:apps/worker"],
 
-    "@dheet/cli": ["@dheet/cli@workspace:packages/cli"],
+    "@dithub/cli": ["@dithub/cli@workspace:packages/cli"],
 
-    "@dheet/indexer": ["@dheet/indexer@workspace:packages/indexer"],
+    "@dithub/indexer": ["@dithub/indexer@workspace:packages/indexer"],
 
-    "@dheet/remote-helper": ["@dheet/remote-helper@workspace:packages/remote-helper"],
+    "@dithub/remote-helper": ["@dithub/remote-helper@workspace:packages/remote-helper"],
 
-    "@dheet/sdk": ["@dheet/sdk@workspace:packages/sdk"],
+    "@dithub/sdk": ["@dithub/sdk@workspace:packages/sdk"],
 
-    "@dheet/web": ["@dheet/web@workspace:packages/web"],
+    "@dithub/web": ["@dithub/web@workspace:packages/web"],
 
     "@noble/ciphers": ["@noble/ciphers@2.0.1", "", {}, "sha512-xHK3XHPUW8DTAobU+G0XT+/w+JLM7/8k1UFdB5xg/zTFPnFCobhftzw8wl4Lw2aq/Rvir5pxfZV5fEazmeCJ2g=="],
 

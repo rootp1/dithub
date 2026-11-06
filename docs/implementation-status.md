@@ -1,11 +1,11 @@
 # Implementation status
 
-This repository implements the local-first Dheet protocol slice and deterministic acceptance tests. It does not claim a production mainnet deployment.
+This repository implements the local-first Dithub protocol slice and deterministic acceptance tests. It does not claim a production mainnet deployment.
 
 ## Automated acceptance
 
-- Canonical SHA-1/SHA-256 Git framing, Dheet SHA-256 OIDs, BLAKE3 chunks, manifests, and Merkle roots.
-- Two-identity Git clone, edit, push, fresh clone, and strict `git fsck` through `git-remote-dheet`.
+- Canonical SHA-1/SHA-256 Git framing, Dithub SHA-256 OIDs, BLAKE3 chunks, manifests, and Merkle roots.
+- Two-identity Git clone, edit, push, fresh clone, and strict `git fsck` through `git-remote-dithub`.
 - Process-safe compare-and-swap and deterministic concurrent-writer rejection.
 - Local Anvil deployment with direct ref anchoring, unsigned transaction generation, EIP-712 relaying, and EIP-1271 verification.
 - Private payload authentication and key-epoch separation.
@@ -28,7 +28,7 @@ No test substitutes mocked success for these external acceptance gates.
 
 Run against the live ENSv2 Sepolia deployment (Universal Resolver `0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe`, `isENSv2() == true`; `.eth` registry matches the registrar via `packages/sdk/scripts/verify-ens-sepolia.ts`).
 
-- Org name: `dheetorg2644.eth`, registered through the ENSv2 registrar (commit/reveal, test USDC).
+- Org name: `dithuborg2644.eth`, registered through the ENSv2 registrar (commit/reveal, test USDC).
 - Org `UserRegistry` (seats): `0xCcc41fC934b5e1C2bC2E28DDD298CF4d2EECaf37`, attached as the name's subregistry.
 - `RefRegistry` (ENS-gated): `0x9f66f0CDc76423D26692437e3964e5CeB7F9341B`, `setEnsGate` points at the `UserRegistry`.
 - Seat = `ROLE_REGISTRAR` on the `UserRegistry` ROOT_RESOURCE (reused ENS role; ENS has no custom role slot).

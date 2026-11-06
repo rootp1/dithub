@@ -1,4 +1,4 @@
-# Dheet Platform Plan: Web2 Product on a Web3 Backbone
+# Dithub Platform Plan: Web2 Product on a Web3 Backbone
 
 **Status:** plan only. No implementation has started from this document.
 **Relationship to `plan.md`:** `plan.md` is the protocol (Arkiv, ENSv2, L1, Git compatibility). This file is the product and infrastructure around it: the GitHub-style web app, its database, and its production infrastructure. Where the two overlap, `plan.md` wins on protocol rules.
@@ -10,7 +10,7 @@
    - Gitea (MIT): reference for schema, permissions, PR/merge logic, UI flows. MIT allows copying with the licence notice kept.
    - Forgejo (GPL-3.0 since v9) and GitLab CE (MIT for the CE core): reference only. Do not paste GPL code into an MIT or proprietary codebase.
    - Libraries: `isomorphic-git` or native `git` binary, `shiki` (syntax highlighting), `diff2html` / `react-diff-view`, `markdown-it` + `rehype-sanitize`, `@octokit`-compatible response shapes for tool compatibility.
-3. **Decision: build our own TypeScript platform, reusing OSS libraries, and borrow schema and flow ideas from Gitea.** Reasons: the Dheet SDK, SIWE login, ENS role gating and Arkiv sync are all TypeScript, and forking Gitea (Go) would put every web3 integration in a foreign codebase.
+3. **Decision: build our own TypeScript platform, reusing OSS libraries, and borrow schema and flow ideas from Gitea.** Reasons: the Dithub SDK, SIWE login, ENS role gating and Arkiv sync are all TypeScript, and forking Gitea (Go) would put every web3 integration in a foreign codebase.
 4. **Honest effort note.** GitHub parity is years of work. This plan targets a *collaborative-coding MVP* (Phase 1 to 3 in section 12) and lists the long tail explicitly as later phases.
 5. **Web2 versus web3 split.** About 80% of the work is ordinary web2: accounts, repos, issues, PRs, search, notifications, infra. Web3 is a layer on top:
    - Wallet login (SIWE).
@@ -164,7 +164,7 @@ CREATE TABLE orgs (
   id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   login citext UNIQUE NOT NULL,                    -- shares the namespace with users (enforced by trigger)
   display_name text, description text, avatar_url text,
-  ens_name text,                                   -- e.g. dheetorg2644.eth, the org's seat registry name
+  ens_name text,                                   -- e.g. dithuborg2644.eth, the org's seat registry name
   ens_registry bytea,                              -- UserRegistry address (seats)
   ref_registry bytea,                              -- RefRegistry address (L1 anchor)
   chain_id integer,
@@ -263,7 +263,7 @@ CREATE TABLE git_refs (
 CREATE TABLE commits (
   repo_id bigint REFERENCES repos(id) ON DELETE CASCADE,
   oid bytea NOT NULL,                                        -- git OID (20 or 32 bytes)
-  dheet_oid bytea,                                           -- SHA-256 Dheet OID
+  dheet_oid bytea,                                           -- SHA-256 Dithub OID
   tree_oid bytea NOT NULL, parent_oids bytea[] NOT NULL,
   author_name text, author_email text, author_user_id bigint REFERENCES users(id),
   authored_at timestamptz NOT NULL, committed_at timestamptz NOT NULL,
@@ -551,7 +551,7 @@ apps/api         Hono API
 apps/git         git service (http-backend, sshd, hooks)
 apps/worker      BullMQ workers (web3 sync, search, notifications, webhooks, maintenance)
 packages/db      Drizzle schema, migrations, seeds
-packages/sdk     existing Dheet protocol SDK (kept)
+packages/sdk     existing Dithub protocol SDK (kept)
 packages/contracts  existing Solidity (kept)
 packages/shared  zod schemas, types, permission logic
 infra/           docker, compose, Caddyfile, Helm chart, Grafana dashboards, backup scripts

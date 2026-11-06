@@ -21,3 +21,4 @@ docs/ensv2/
 
 cre/.env
 cre/**/node_modules/
+smoke-*/

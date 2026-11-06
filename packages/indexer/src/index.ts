@@ -97,5 +97,5 @@ if (import.meta.main) {
   const databasePath = resolve(process.env.DHEET_INDEX ?? join(networkPath, 'index.sqlite'))
   const port = Number(process.env.PORT ?? '8787')
   const server = startIndexer({ networkPath, databasePath, port })
-  console.log(`Dheet indexer and explorer listening on ${server.url}`)
+  console.log(`Dithub indexer and explorer listening on ${server.url}`)
 }

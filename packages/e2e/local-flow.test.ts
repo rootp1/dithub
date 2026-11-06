@@ -16,7 +16,7 @@ import { buildIndex } from '../indexer/src/index.ts'
 const temporaryDirectories: string[] = []
 
 function temporaryDirectory(label: string): string {
-  const directory = mkdtempSync(join(tmpdir(), `dheet-${label}-`))
+  const directory = mkdtempSync(join(tmpdir(), `dithub-${label}-`))
   temporaryDirectories.push(directory)
   return directory
 }
@@ -95,7 +95,7 @@ describe('local end-to-end Git transport', () => {
     expect(readFileSync(join(fresh, 'README.md'), 'utf8')).toContain('Bob was here.')
     run('git', ['fsck', '--full', '--strict'], fresh)
 
-    const archive = join(root, 'demo.dheet-archive')
+    const archive = join(root, 'demo.dithub-archive')
     exportRepositoryArchive('demo.local', store, archive)
     const recoveredNetwork = join(root, 'recovered-network')
     const recovered = join(root, 'recovered')

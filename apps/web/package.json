@@ -1,5 +1,5 @@
 {
-  "name": "@dheet/app-web",
+  "name": "@dithub/app-web",
   "private": true,
   "type": "module",
   "dependencies": {}

@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// Asks the Dheet API whether the pusher may update each ref (permissions, branch protection).
+// Asks the Dithub API whether the pusher may update each ref (permissions, branch protection).
 // Fast-forward detection happens here: during pre-receive the new objects live in git's quarantine
 // directory, which only this process can see.
 const ZERO = /^0+$/
@@ -15,6 +15,6 @@ const res = await fetch(`${process.env.DHEET_INTERNAL_URL}/internal/pre-receive`
   method: 'POST',
   headers: { 'content-type': 'application/json', authorization: `Bearer ${process.env.DHEET_INTERNAL_TOKEN}` },
   body: JSON.stringify({ repoId: process.env.DHEET_REPO_ID, userId: process.env.DHEET_USER_ID, updates }),
-}).catch((e) => { console.error(`dheet: policy service unreachable: ${e}`); return null })
+}).catch((e) => { console.error(`dithub: policy service unreachable: ${e}`); return null })
 if (!res) process.exit(1)
-if (!res.ok) { console.error(`dheet: push rejected: ${(await res.text()).trim()}`); process.exit(1) }
+if (!res.ok) { console.error(`dithub: push rejected: ${(await res.text()).trim()}`); process.exit(1) }

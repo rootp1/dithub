@@ -21,7 +21,7 @@ contract RefRegistry {
     bytes32 public constant WRITER_ROLE = keccak256("WRITER_ROLE");
     bytes32 public constant FORCE_PUSH_ROLE = keccak256("FORCE_PUSH_ROLE");
 
-    /// @notice ENSv2 ROLE_REGISTRAR (1 << 0). Holding it on the org registry's ROOT_RESOURCE is a Dheet writer seat.
+    /// @notice ENSv2 ROLE_REGISTRAR (1 << 0). Holding it on the org registry's ROOT_RESOURCE is a Dithub writer seat.
     uint256 public constant ENS_WRITER_ROLE = 1 << 0;
     uint256 public constant ENS_ROOT_RESOURCE = 0;
 

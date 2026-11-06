@@ -62,7 +62,7 @@ export async function prepareRefAnchor(args: {
 }): Promise<{ transaction: UnsignedTransaction; expectedSequence: bigint; expectedOld: ViemHex }> {
   const chain = defineChain({
     id: args.chainId,
-    name: `Dheet L1 ${args.chainId}`,
+    name: `Dithub L1 ${args.chainId}`,
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: { default: { http: [args.rpcUrl] } },
   })
@@ -109,7 +109,7 @@ export async function anchorRef(args: {
 }): Promise<RefAnchorResult> {
   const chain = defineChain({
     id: args.chainId,
-    name: `Dheet L1 ${args.chainId}`,
+    name: `Dithub L1 ${args.chainId}`,
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: { default: { http: [args.rpcUrl] } },
   })
@@ -185,7 +185,7 @@ export async function anchorRefBySignature(args: {
 }): Promise<RefAnchorResult> {
   const chain = defineChain({
     id: args.chainId,
-    name: `Dheet L1 ${args.chainId}`,
+    name: `Dithub L1 ${args.chainId}`,
     nativeCurrency: { name: 'Ether', symbol: 'ETH', decimals: 18 },
     rpcUrls: { default: { http: [args.rpcUrl] } },
   })

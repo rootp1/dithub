@@ -58,7 +58,7 @@ export function importRepositoryArchive(
   store: LocalNetworkStore,
 ): { archiveHash: Hex; record: RepositoryRecord; chunks: number } {
   const archive = JSON.parse(readFileSync(source, 'utf8')) as DheetArchive
-  if (archive.format !== 'dheet-archive' || archive.version !== 1) throw new Error('Unsupported Dheet archive')
+  if (archive.format !== 'dheet-archive' || archive.version !== 1) throw new Error('Unsupported Dithub archive')
   const { archiveHash, ...base } = archive
   if (sha256(archivePayload(base)) !== archiveHash) throw new Error('Archive hash mismatch')
   if (sha256(canonicalJson(archive.manifest)) !== archive.manifestHash) throw new Error('Archived manifest hash mismatch')

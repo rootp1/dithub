@@ -31,7 +31,7 @@ export function gitObjectBytes(type: GitObjectType, payload: Uint8Array): Uint8A
   return new Uint8Array(Buffer.concat([header, Buffer.from(payload)]))
 }
 
-export function dheetOid(type: GitObjectType, payload: Uint8Array): Hex {
+export function dithubOid(type: GitObjectType, payload: Uint8Array): Hex {
   return sha256(gitObjectBytes(type, payload))
 }
 

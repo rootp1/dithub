@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { canonicalJson } from '../src/canonical.ts'
 import { chunkBytes, joinChunks } from '../src/chunks.ts'
-import { dheetOid, gitOid, sha256, toBytes32GitOid } from '../src/hash.ts'
+import { dithubOid, gitOid, sha256, toBytes32GitOid } from '../src/hash.ts'
 import { merkleRoot } from '../src/merkle.ts'
 import { decryptPrivateChunk, encryptPrivateChunk } from '../src/private.ts'
 import { createCollaborationRecord, verifyCollaborationRecord } from '../src/collaboration.ts'
@@ -13,10 +13,10 @@ describe('protocol primitives', () => {
     )
   })
 
-  test('Git and Dheet OIDs use canonical Git framing', () => {
+  test('Git and Dithub OIDs use canonical Git framing', () => {
     const payload = new TextEncoder().encode('hello\n')
     expect(gitOid('blob', payload, 'sha1')).toBe('0xce013625030ba8dba906f756967f9e9ca394464a')
-    expect(dheetOid('blob', payload)).toBe(gitOid('blob', payload, 'sha256'))
+    expect(dithubOid('blob', payload)).toBe(gitOid('blob', payload, 'sha256'))
     expect(toBytes32GitOid('ce013625030ba8dba906f756967f9e9ca394464a')).toBe(
       '0x000000000000000000000000ce013625030ba8dba906f756967f9e9ca394464a',
     )
@@ -34,7 +34,7 @@ describe('protocol primitives', () => {
   })
 
   test('Merkle root is stable regardless of input order', () => {
-    const leaves = [dheetOid('blob', new Uint8Array([1])), dheetOid('blob', new Uint8Array([2]))]
+    const leaves = [dithubOid('blob', new Uint8Array([1])), dithubOid('blob', new Uint8Array([2]))]
     expect(merkleRoot(leaves)).toBe(merkleRoot([...leaves].reverse()))
   })
 

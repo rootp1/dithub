@@ -77,7 +77,7 @@ function output(args: ParsedArgs, value: unknown, human: string): void {
 }
 
 function usage(): never {
-  console.error(`dheet <command>
+  console.error(`dithub <command>
 
 Commands:
   init <name> [--network path] [--repo path]

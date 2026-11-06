@@ -1,4 +1,4 @@
-# Hackathon submission: Dheet
+# Hackathon submission: Dithub
 
 Live: https://172-105-43-184.sslip.io. Repo: this repository (MIT). Quick judge check: `SITE=https://172-105-43-184.sslip.io bun scripts/verify-site.ts`.
 Evidence column: "tested" means we ran it and it passed; "present" means the code or doc exists but was not verified end to end by this document's author.
@@ -7,7 +7,7 @@ Evidence column: "tested" means we ran it and it passed; "present" means the cod
 | Requirement | Evidence |
 | --- | --- |
 | Meaningful use of Arkiv for writes | Chunks, manifests, per-commit activity, name claims, RBAC chain, deployment events: `arkiv/schema.md`, `packages/sdk/src/{arkiv,activity}.ts`, `apps/worker/src/` |
-| User-visible feature that READS Arkiv | `GET /api/deployments` reads `dheet-activity-v1` from Arkiv (`apps/api/src/deployments.ts`); tested: `source: "arkiv"` with releases #1 and #2; `dheet arkiv-clone` recovery (`packages/cli`) |
+| User-visible feature that READS Arkiv | `GET /api/deployments` reads `dheet-activity-v1` from Arkiv (`apps/api/src/deployments.ts`); tested: `source: "arkiv"` with releases #1 and #2; `dithub arkiv-clone` recovery (`packages/cli`) |
 | Schema documentation | `arkiv/schema.md` |
 | Honest friction report | `arkiv/friction.md` (expiry cap, no read proofs, limit 100 hit live, typing quirks) |
 | Reach / why Arkiv / how used | `arkiv/reach.md`, `arkiv/why-arkiv.md`, `arkiv/how-you-use-arkiv.md` |

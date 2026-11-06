@@ -9,7 +9,7 @@ const real = existsSync(resolve(dist, 'build.json'))
 
 describe('hashing', () => {
   test('sha256Hex matches node crypto', () => {
-    const b = new TextEncoder().encode('dheet')
+    const b = new TextEncoder().encode('dithub')
     expect(sha256Hex(b)).toBe('0x' + createHash('sha256').update(b).digest('hex'))
   })
   test('bundleHash sorts keys and uses compact JSON', () => {

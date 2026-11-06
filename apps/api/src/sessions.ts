@@ -362,7 +362,7 @@ sessions.post('/sessions/:id/proposals', async (c) => {
     const parentTree = (await gitx(dir, ['rev-parse', `${parent}^{tree}`])).out.trim()
     if (tree === parentTree) return reject('patch produces no change')
     const title = (typeof b.title === 'string' && b.title.trim() ? b.title.trim() : `Proposal for issue #${scope.issueNumber}`).slice(0, 300)
-    const id = { GIT_AUTHOR_NAME: user.login, GIT_AUTHOR_EMAIL: `${user.login}@users.noreply.dheet`, GIT_COMMITTER_NAME: user.login, GIT_COMMITTER_EMAIL: `${user.login}@users.noreply.dheet` }
+    const id = { GIT_AUTHOR_NAME: user.login, GIT_AUTHOR_EMAIL: `${user.login}@users.noreply.dithub`, GIT_COMMITTER_NAME: user.login, GIT_COMMITTER_EMAIL: `${user.login}@users.noreply.dithub` }
     const cm = await gitx(dir, ['commit-tree', tree, '-p', parent, '-F', '-'], { env: id, input: `${title}\n\nSession-Issue: #${scope.issueNumber}\n` })
     if (cm.code !== 0) throw new Error(cm.err)
     const commit = cm.out.trim()

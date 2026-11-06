@@ -9,7 +9,7 @@ export interface ChunkDescriptor {
 }
 
 export interface ObjectDescriptor {
-  dheetOid: Hex
+  dithubOid: Hex
   gitOid: Hex
   gitOidHex: string
   gitAlgorithm: GitObjectFormat
@@ -24,7 +24,7 @@ export interface RefDescriptor {
 }
 
 export interface RepositoryManifest {
-  protocol: 'dheet'
+  protocol: 'dithub'
   version: 1
   repoId: Hex
   name: string

@@ -8,6 +8,6 @@ const res = await fetch(`${process.env.DHEET_INTERNAL_URL}/internal/post-receive
   method: 'POST',
   headers: { 'content-type': 'application/json', authorization: `Bearer ${process.env.DHEET_INTERNAL_TOKEN}` },
   body: JSON.stringify({ repoId: process.env.DHEET_REPO_ID, userId: process.env.DHEET_USER_ID, updates }),
-}).catch((e) => { console.error(`dheet: could not record push: ${e}`); return null })
-if (res?.ok) console.error('dheet: push recorded, syncing to Arkiv and L1 in the background')
-else console.error('dheet: warning: push stored but not recorded; an admin can reconcile')
+}).catch((e) => { console.error(`dithub: could not record push: ${e}`); return null })
+if (res?.ok) console.error('dithub: push recorded, syncing to Arkiv and L1 in the background')
+else console.error('dithub: warning: push stored but not recorded; an admin can reconcile')

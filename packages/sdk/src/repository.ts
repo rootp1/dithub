@@ -87,10 +87,10 @@ export function publishRepository(
 
   const sequence = current.sequence + 1
   const objects = exported.map(({ descriptor }) => descriptor).sort((left, right) =>
-    left.dheetOid.localeCompare(right.dheetOid),
+    left.dithubOid.localeCompare(right.dithubOid),
   )
   const manifest: RepositoryManifest = {
-    protocol: 'dheet',
+    protocol: 'dithub',
     version: 1,
     repoId: current.repoId,
     name: current.name,
@@ -155,7 +155,7 @@ export function materialiseBareRepository(
   if (!repo.manifestHash) throw new Error(`Repository has not been published: ${repo.name}`)
   const manifest = store.getManifest(repo.manifestHash)
   const bundle = reconstructBundle(store, manifest)
-  const bundlePath = join(tmpdir(), `dheet-${repo.repoId.slice(2)}-${process.pid}.bundle`)
+  const bundlePath = join(tmpdir(), `dithub-${repo.repoId.slice(2)}-${process.pid}.bundle`)
   try {
     writeFileSync(bundlePath, bundle)
     run('git', ['clone', '--bare', bundlePath, resolve(destination)])
@@ -205,11 +205,11 @@ export function verifyRepository(nameOrId: string, store: LocalNetworkStore): Ve
 
 export function repositoryRemoteUrl(name: string, networkPath: string): string {
   const encoded = Buffer.from(resolve(networkPath)).toString('base64url')
-  return `dheet::${name}@${encoded}`
+  return `dithub::${name}@${encoded}`
 }
 
 export function parseRepositoryRemoteUrl(url: string): { name: string; networkPath: string } {
-  const match = /^(?:dheet::)?([^@]+)@([A-Za-z0-9_-]+)$/.exec(url)
-  if (!match?.[1] || !match[2]) throw new Error(`Invalid Dheet remote URL: ${url}`)
+  const match = /^(?:(?:dithub|dheet)::)?([^@]+)@([A-Za-z0-9_-]+)$/.exec(url)   // dheet:: is the pre-rename scheme
+  if (!match?.[1] || !match[2]) throw new Error(`Invalid Dithub remote URL: ${url}`)
   return { name: match[1], networkPath: Buffer.from(match[2], 'base64url').toString('utf8') }
 }

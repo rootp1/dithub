@@ -15,7 +15,7 @@ const req = async (path: string, init: RequestInit = {}) => {
 }
 const git = (cwd: string, ...a: string[]) => { const r = Bun.spawnSync(['git', '-c', 'credential.helper=', ...a], { cwd, env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@t' } }); return { code: r.exitCode, err: r.stderr.toString() } }
 
-const html = await (await fetch(BASE + '/')).text(); ok(html.includes('<title>Dheet</title>'), 'web app is served over HTTPS')
+const html = await (await fetch(BASE + '/')).text(); ok(html.includes('<title>Dithub</title>'), 'web app is served over HTTPS')
 const acct = privateKeyToAccount(process.env.DHEET_SEAT_KEY as `0x${string}`)
 const { nonce } = await (await req('/api/auth/nonce')).json() as { nonce: string }
 const message = createSiweMessage({ address: acct.address, chainId: 11155111, domain: host, nonce, uri: BASE, version: '1' })

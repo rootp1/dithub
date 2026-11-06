@@ -1,12 +1,13 @@
 {
-  "name": "@dheet/cli",
+  "name": "@dithub/cli",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "bin": {
+    "dithub": "./src/index.ts",
     "dheet": "./src/index.ts"
   },
   "dependencies": {
-    "@dheet/sdk": "workspace:*"
+    "@dithub/sdk": "workspace:*"
   }
 }

@@ -1,8 +1,8 @@
-# Dheet
+# Dithub
 
-Dheet is a GitHub-style collaboration platform (repos, orgs and RBAC, issues, pull requests, task-scoped contractor sessions) whose history is mirrored to public
+Dithub is a GitHub-style collaboration platform (repos, orgs and RBAC, issues, pull requests, task-scoped contractor sessions) whose history is mirrored to public
 infrastructure: every commit is recorded as an Arkiv entity carrying the Ethereum Sepolia anchor transaction, repo code is published to Arkiv, and the frontend you
-are served is provably the one released on-chain. It also contains the original protocol work: a Git-compatible decentralised remote (`git-remote-dheet`) with an
+are served is provably the one released on-chain. It also contains the original protocol work: a Git-compatible decentralised remote (`git-remote-dithub`) with an
 SDK, CLI, indexer and Solidity contracts (see `plan.md`).
 
 Live: https://172-105-43-184.sslip.io (single Linode, Caddy TLS, Docker Compose). Licence: MIT.

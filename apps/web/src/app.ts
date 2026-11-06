@@ -27,7 +27,7 @@ async function connect() {
   const [address] = (await eth.request({ method: 'eth_requestAccounts' })) as string[]
   const { nonce } = await api<{ nonce: string }>('/api/auth/nonce')
   const issued = new Date().toISOString(), expires = new Date(Date.now() + 5 * 60_000).toISOString()
-  const message = `${location.host} wants you to sign in with your Ethereum account:\n${address}\n\nSign in to Dheet\n\nURI: ${location.origin}\nVersion: 1\nChain ID: 11155111\nNonce: ${nonce}\nIssued At: ${issued}\nExpiration Time: ${expires}`
+  const message = `${location.host} wants you to sign in with your Ethereum account:\n${address}\n\nSign in to Dithub\n\nURI: ${location.origin}\nVersion: 1\nChain ID: 11155111\nNonce: ${nonce}\nIssued At: ${issued}\nExpiration Time: ${expires}`
   const signature = (await eth.request({ method: 'personal_sign', params: [message, address] })) as string
   const r = await api<{ user: typeof me }>('/api/auth/verify', { method: 'POST', body: JSON.stringify({ message, signature }) })
   me = r.user; render()

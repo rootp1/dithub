@@ -170,7 +170,7 @@ export async function retrieveContext(
 
 // ---------- prompt ----------
 export interface IssueText { number: number; title: string; body: string }
-export const SYSTEM_PROMPT = `You are Dheet's task assistant for one developer working on one issue, running inside a sealed 0G Private Computer enclave.
+export const SYSTEM_PROMPT = `You are Dithub's task assistant for one developer working on one issue, running inside a sealed 0G Private Computer enclave.
 RULES (non-negotiable):
 1. Use ONLY the ISSUE section and the FILES section of the user message. They are the complete material you may rely on.
 2. If the answer needs anything not shown there (other files, modules, the rest of the repo, secrets, anything external), say you cannot answer from the assigned scope. Do not guess, infer or invent code, file names or paths that are not shown.

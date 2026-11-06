@@ -1,20 +1,20 @@
-# Dheet: Implementation-Ready Protocol Plan
+# Dithub: Implementation-Ready Protocol Plan
 
 **Status:** architecture baseline for implementation  
 **Target:** Git-compatible, decentralised version control and collaboration using Arkiv for hot queryable data, ENSv2 for names/identity/permissions, Ethereum L1 for authoritative concurrency and settlement, and content-addressed cold archives for permanence.
 
 ## 0. Decisions and invariants
 
-The following choices resolve the source conflicts and are normative for Dheet v1.
+The following choices resolve the source conflicts and are normative for Dithub v1.
 
-1. **Git remains the compatibility boundary.** Dheet stores and serves canonical Git object bytes and packfiles. It does not invent a replacement commit graph.
-2. **SHA-256 is Dheet's canonical digest; Git OIDs are retained.** `dheetOid = SHA-256("<type> <len>\0" || canonicalGitPayload)`. `gitOid` is the repository's native SHA-1 or SHA-256 OID. BLAKE3 is used for fast chunk verification and Merkle leaves, never as a substitute for a Git OID.
-3. **Arkiv is not permanent storage.** The public SDK/current tokenomics reject permanent expiry even though an older API specification describes `MAX_EXPIRES_AT` as permanent. Dheet caps every create/extend at `7,884,000` blocks (about 182.5 days), renews before expiry, enables permissionless extension on durable entities, and requires cold-archive replication.
+1. **Git remains the compatibility boundary.** Dithub stores and serves canonical Git object bytes and packfiles. It does not invent a replacement commit graph.
+2. **SHA-256 is Dithub's canonical digest; Git OIDs are retained.** `dithubOid = SHA-256("<type> <len>\0" || canonicalGitPayload)`. `gitOid` is the repository's native SHA-1 or SHA-256 OID. BLAKE3 is used for fast chunk verification and Merkle leaves, never as a substitute for a Git OID.
+3. **Arkiv is not permanent storage.** The public SDK/current tokenomics reject permanent expiry even though an older API specification describes `MAX_EXPIRES_AT` as permanent. Dithub caps every create/extend at `7,884,000` blocks (about 182.5 days), renews before expiry, enables permissionless extension on durable entities, and requires cold-archive replication.
 4. **Arkiv reads are untrusted in v1.** Although the API design discusses watcher proofs, the deployed read path does not yet provide a proof workflow suitable for clients. Every fetched object is content-hash verified; authoritative refs are checked against L1; multiple RPCs are compared where practical.
-5. **Use only live Arkiv query features.** No `NOT`, `!=`, `BETWEEN`, cursor, history query, or multi-column order is required. Dheet uses positive predicates, one `ORDER BY`, a maximum `limit` of 100, and `$key` or monotonic `seq` keyset pagination.
-6. **Registry identifiers are labelhash/resource, never token ID.** ENSv2 token IDs mutate on role changes and re-registration. Dheet persists the labelhash and resolves current token/resource at use time.
-7. **Resolver argument permissions follow the contract-specific rule.** The general EAC page loosely describes resolver resources using namehash and record type; the Permissioned Resolver page defines the actual scheme as the setter argument alone (`keccak256(key)`, `keccak256(abi.encode(coinType))`, etc.). Dheet follows the latter and deploys one resolver per repository so a key-scoped grant cannot affect another repository.
-8. **Do not hard-code a Sepolia deployment as truth.** Local materials contain deployment-era address sets. The CLI's 2026-10-01 set is a test fixture only. At runtime Dheet reads the Universal Resolver, requires `isENSv2()`, discovers `ROOT_REGISTRY()`, follows `getSubregistry("eth")`, checks it against `ETH_REGISTRY()` on the registrar, and verifies factory proxies with `verifyContract`. A signed deployment manifest pins the accepted addresses and code hashes per release.
+5. **Use only live Arkiv query features.** No `NOT`, `!=`, `BETWEEN`, cursor, history query, or multi-column order is required. Dithub uses positive predicates, one `ORDER BY`, a maximum `limit` of 100, and `$key` or monotonic `seq` keyset pagination.
+6. **Registry identifiers are labelhash/resource, never token ID.** ENSv2 token IDs mutate on role changes and re-registration. Dithub persists the labelhash and resolves current token/resource at use time.
+7. **Resolver argument permissions follow the contract-specific rule.** The general EAC page loosely describes resolver resources using namehash and record type; the Permissioned Resolver page defines the actual scheme as the setter argument alone (`keccak256(key)`, `keccak256(abi.encode(coinType))`, etc.). Dithub follows the latter and deploys one resolver per repository so a key-scoped grant cannot affect another repository.
+8. **Do not hard-code a Sepolia deployment as truth.** Local materials contain deployment-era address sets. The CLI's 2026-10-01 set is a test fixture only. At runtime Dithub reads the Universal Resolver, requires `isENSv2()`, discovers `ROOT_REGISTRY()`, follows `getSubregistry("eth")`, checks it against `ETH_REGISTRY()` on the registrar, and verifies factory proxies with `verifyContract`. A signed deployment manifest pins the accepted addresses and code hashes per release.
 9. **L1 is the single writer for shared refs.** Arkiv has no contracts and owner-gated patching cannot implement multi-writer compare-and-swap. `RefRegistry` on L1 authoritatively orders branch/tag updates; Arkiv stores immutable projections and bulk objects.
 10. **No cross-chain atomicity is claimed.** Push is a resumable two-phase protocol: upload content, then commit the L1 ref CAS. An uploaded but unanchored pack is harmless garbage; an anchored update missing an Arkiv projection can be reconstructed from the L1 event and cold archive.
 
@@ -24,7 +24,7 @@ The following choices resolve the source conflicts and are normative for Dheet v
 
 ### Vision
 
-Dheet makes a Git repository a self-verifying dataset with no mandatory hosting server. A user can resolve a repository from ENS, fetch its authoritative refs from Ethereum, obtain content from any Arkiv RPC, pinner, peer, or cold archive, verify every byte locally, and collaborate through signed append-only records.
+Dithub makes a Git repository a self-verifying dataset with no mandatory hosting server. A user can resolve a repository from ENS, fetch its authoritative refs from Ethereum, obtain content from any Arkiv RPC, pinner, peer, or cold archive, verify every byte locally, and collaborate through signed append-only records.
 
 ### Goals
 
@@ -60,7 +60,7 @@ Dheet makes a Git repository a self-verifying dataset with no mandatory hosting 
 ### Functional requirements
 
 1. Initialise/import SHA-1 and SHA-256 Git repositories without rewriting existing history.
-2. Resolve `dheet://repo.org.eth` to repository ID, contracts, current manifest, ref root, and archive locations.
+2. Resolve `dithub://repo.org.eth` to repository ID, contracts, current manifest, ref root, and archive locations.
 3. Push only missing objects; fetch by negotiation or manifest; materialise a valid local Git object database.
 4. Update refs with compare-and-swap, protected-branch policy, force-push controls, and monotonic sequence numbers.
 5. Create forks, pull requests, reviews, issues, comments, releases, stars, and subscriptions as signed records.
@@ -86,8 +86,8 @@ Dheet makes a Git repository a self-verifying dataset with no mandatory hosting 
 
 ```mermaid
 flowchart TB
-  U[Git CLI / Dheet CLI / Web UI]
-  RH[git-remote-dheet]
+  U[Git CLI / Dithub CLI / Web UI]
+  RH[git-remote-dithub]
   LOS[Local Git object store + SQLite index]
   SE[Sync engine and daemon]
   AR[Arkiv hot storage and query RPCs]
@@ -115,16 +115,16 @@ Trust is deliberately split:
 - **Arkiv:** queryable, expiring, replicated hot cache; never authoritative for shared ref ordering.
 - **ENSv2:** human-readable discovery and delegated record administration.
 - **L1 contracts:** repository identity, role policy, ref CAS, release roots, and funds.
-- **Cold archive:** long-lived bulk bytes; integrity comes from Dheet/Git hashes, not provider trust.
+- **Cold archive:** long-lived bulk bytes; integrity comes from Dithub/Git hashes, not provider trust.
 - **Indexer:** performance aid only. Clients can replay L1 events and query Arkiv directly.
 
 ## 4. Arkiv data model
 
 ### 4.1 Encoding and common envelope
 
-All durable entities are created with `readonly=true` and `permissionlessExtension=true`. Mutable UI state is represented as a new immutable snapshot/event with a higher L1-authorised `seq`; Dheet does not patch content records. Temporary upload leases may be non-readonly and owner-patched, but are outside the public protocol schema.
+All durable entities are created with `readonly=true` and `permissionlessExtension=true`. Mutable UI state is represented as a new immutable snapshot/event with a higher L1-authorised `seq`; Dithub does not patch content records. Temporary upload leases may be non-readonly and owner-patched, but are outside the public protocol schema.
 
-Attribute notation below is `name:type:indexed?`. `I` means indexed, `U` unindexed. Each entity has at most 32 attributes. Attribute names are ASCII and at most 32 bytes; strings are at most 128 UTF-8 bytes. A `bytes` value is never indexed and each operation stays below 128 KiB. Dheet chooses a conservative **120 KiB (`122,880` bytes) chunk payload** to leave calldata and metadata headroom.
+Attribute notation below is `name:type:indexed?`. `I` means indexed, `U` unindexed. Each entity has at most 32 attributes. Attribute names are ASCII and at most 32 bytes; strings are at most 128 UTF-8 bytes. A `bytes` value is never indexed and each operation stays below 128 KiB. Dithub chooses a conservative **120 KiB (`122,880` bytes) chunk payload** to leave calldata and metadata headroom.
 
 Every entity includes this exact envelope:
 
@@ -152,23 +152,23 @@ The following columns are added to the eight-field envelope.
 | `blob-chunk` | `oid:bytes32:I`, `gitOid:bytes32:I`, `gitAlg:str:I`, `objectKind:str:I`, `chunkNo:u64:I`, `chunkCount:u64:I`, `rawSize:u64:U`, `chunkSize:u64:U`, `chunkHash:bytes32:I`, `content:bytes:U` | contiguous canonical payload chunk; despite the schema's compatibility name, `objectKind` may be `blob`, `tree`, `commit`, or `tag`; `chunkHash=BLAKE3(content)` |
 | `tag` | `oid:bytes32:I`, `gitOid:bytes32:I`, `gitAlg:str:I`, `targetOid:bytes32:I`, `targetKind:str:I`, `tagNameHash:bytes32:I`, `rawSize:u64:U`, `chunkCount:u64:I`, `codec:str:U`, `content:bytes:U` | canonical annotated-tag payload including native GPG/SSH signature; oversized tags use chunks |
 | `ref` | `refKey:bytes32:I`, `refName:str:I`, `oldOid:bytes32:I`, `newOid:bytes32:I`, `manifest:bytes32:I`, `force:bool:I`, `anchorTx:bytes32:I`, `anchorBlock:u64:I`, `policyHash:bytes32:I`, `content:bytes:U` | deterministic CBOR copy of the `RefUpdated` event and proof material |
-| `pack-manifest` | `oid:bytes32:I`, `packHash:bytes32:I`, `objectRoot:bytes32:I`, `chunkRoot:bytes32:I`, `objectCount:u64:I`, `packSize:u64:U`, `chunkSize:u64:U`, `codec:str:I`, `coldId:str:U`, `content:bytes:U` | CBOR object index: Git OID ↔ Dheet OID ↔ pack offset/type/base; ordered chunk hashes and Arkiv keys |
+| `pack-manifest` | `oid:bytes32:I`, `packHash:bytes32:I`, `objectRoot:bytes32:I`, `chunkRoot:bytes32:I`, `objectCount:u64:I`, `packSize:u64:U`, `chunkSize:u64:U`, `codec:str:I`, `coldId:str:U`, `content:bytes:U` | CBOR object index: Git OID ↔ Dithub OID ↔ pack offset/type/base; ordered chunk hashes and Arkiv keys |
 | `pr` | `prId:bytes32:I`, `sourceRepo:bytes32:I`, `sourceRef:bytes32:I`, `targetRef:bytes32:I`, `baseOid:bytes32:I`, `headOid:bytes32:I`, `state:str:I`, `mergeOid:bytes32:I`, `title:str:U`, `content:bytes:U` | snapshot/event body, labels, assignees, prior snapshot hash |
 | `review` | `reviewId:bytes32:I`, `prId:bytes32:I`, `commitOid:bytes32:I`, `verdict:str:I`, `supersedes:bytes32:I`, `content:bytes:U` | review body and optional inline-comment root |
 | `issue` | `issueId:bytes32:I`, `state:str:I`, `title:str:U`, `labelRoot:bytes32:I`, `assigneeRoot:bytes32:I`, `content:bytes:U` | issue body plus prior snapshot hash |
 | `comment` | `commentId:bytes32:I`, `threadId:bytes32:I`, `parentId:bytes32:I`, `targetOid:bytes32:I`, `pathHash:bytes32:I`, `line:u64:I`, `content:bytes:U` | Markdown body; edit/delete is a signed superseding comment event |
 | `renewal-receipt` | `target:key:I`, `targetHash:bytes32:I`, `oldExpiry:u64:I`, `newExpiry:u64:I`, `payer:addr:I`, `arkivTx:bytes32:I`, `amount:u256:U`, `content:bytes:U` | receipt, observed block, RPC set, pinner policy, optional cold-archive receipt |
 
-`gitOid:bytes32` encodes a SHA-1 OID as twelve zero bytes followed by the 20-byte digest; SHA-256 occupies all 32 bytes. `gitAlg` disambiguates. `refName` is stored only if it fits 128 bytes; Dheet rejects longer refs at publication even though local Git may permit edge cases. `refKey = keccak256(UTF8(refName))` is the stable key.
+`gitOid:bytes32` encodes a SHA-1 OID as twelve zero bytes followed by the 20-byte digest; SHA-256 occupies all 32 bytes. `gitAlg` disambiguates. `refName` is stored only if it fits 128 bytes; Dithub rejects longer refs at publication even though local Git may permit edge cases. `refKey = keccak256(UTF8(refName))` is the stable key.
 
 ### 4.3 Chunking, packs, deduplication, and deltas
 
 1. Run `git pack-objects --revs --stdout` with a deterministic option profile recorded in the manifest. Git pack v2 bytes are the transport/archive form.
 2. Parse and verify the pack locally. Reject delta depth over 50, object count over the requested budget, integer overflow, duplicate conflicting OIDs, path traversal in checkout, and decompression ratios over policy.
 3. Store commits, trees, and tags directly when their compressed `content` fits 120 KiB. Otherwise set their metadata entity's `content` empty and `chunkCount>0`, then store ordered `blob-chunk` entities with the appropriate `objectKind`. Store every blob as chunks, including single-chunk blobs, so one code path handles range/lazy fetch.
-4. A pack manifest records native `OBJ_OFS_DELTA`/`OBJ_REF_DELTA` mappings. Dheet may store the original pack chunks in cold storage but Arkiv blob chunks are reconstructed object payload chunks, avoiding an unusable delta when a base expires.
+4. A pack manifest records native `OBJ_OFS_DELTA`/`OBJ_REF_DELTA` mappings. Dithub may store the original pack chunks in cold storage but Arkiv blob chunks are reconstructed object payload chunks, avoiding an unusable delta when a base expires.
 5. Deduplicate within a repository by `(repo, oid, chunkNo)`. Cross-repository global dedup is disabled for private repos and optional for public repos because it leaks object equality. Before upload, query existing chunks and verify `chunkHash`.
-6. `objectRoot` is a Merkle root over sorted `(dheetOid, gitAlg, gitOid, type, rawSize)` leaves. `chunkRoot` is over ordered `(oid, chunkNo, chunkHash)` leaves. L1 anchors the manifest hash/root, not each object.
+6. `objectRoot` is a Merkle root over sorted `(dithubOid, gitAlg, gitOid, type, rawSize)` leaves. `chunkRoot` is over ordered `(oid, chunkNo, chunkHash)` leaves. L1 anchors the manifest hash/root, not each object.
 
 ### 4.4 Write batches
 
@@ -189,7 +189,7 @@ No push assumes atomicity across Arkiv and Ethereum.
 `arkiv_query` receives the query string separately from `{limit, select}`. Values below are fully typed and hexadecimal placeholders are exactly sized.
 
 ```sql
--- Find a commit by Dheet OID
+-- Find a commit by Dithub OID
 kind = str('commit') AND repo = bytes32(0x<64hex>) AND oid = bytes32(0x<64hex>)
 
 -- Fetch all chunks of one blob; chunkNo is unique and monotonic
@@ -220,7 +220,7 @@ repo = bytes32(0x<64hex>) AND $key > key(0x<lastEntityKey64hex>)
 ORDER BY $key:key ASC
 ```
 
-Start without the `$key` predicate; continue from the last returned key; stop on fewer than 100 rows. For event feeds, `seq > lastSeq ORDER BY seq ASC` is preferred because L1 guarantees unique repo sequence numbers. Offset pagination is allowed only for human UI pages, never replication. Dheet does not depend on expiry events; it maintains a local expiry heap from `$expiresAt` and periodically rescans.
+Start without the `$key` predicate; continue from the last returned key; stop on fewer than 100 rows. For event feeds, `seq > lastSeq ORDER BY seq ASC` is preferred because L1 guarantees unique repo sequence numbers. Offset pagination is allowed only for human UI pages, never replication. Dithub does not depend on expiry events; it maintains a local expiry heap from `$expiresAt` and periodically rescans.
 
 ### 4.6 Cost per push
 
@@ -247,7 +247,7 @@ Worked 1 MiB push assumptions: incompressible bytes, nine 120 KiB-or-smaller chu
 | Total Arkiv gas | about `179.6M gas`, split across transactions |
 | At 1 gwei | `0.1796 GLM`, about `$0.018` |
 
-This is an engineering estimate, not a quote: the deployed genesis weights, base fee, compression ratio, indexed-cell count, and transaction encoding control the actual result. `dheet push --dry-run` must build exact calldata and call gas estimation for each batch. The current 30M block gas limit means a 1 MiB upload cannot be one transaction; five 120 KiB chunks are near 24.6M calldata-floor gas before storage, so the planner will commonly choose two-to-five chunks per transaction.
+This is an engineering estimate, not a quote: the deployed genesis weights, base fee, compression ratio, indexed-cell count, and transaction encoding control the actual result. `dithub push --dry-run` must build exact calldata and call gas estimation for each batch. The current 30M block gas limit means a 1 MiB upload cannot be one transaction; five 120 KiB chunks are near 24.6M calldata-floor gas before storage, so the planner will commonly choose two-to-five chunks per transaction.
 
 ## 5. ENSv2 design
 
@@ -273,7 +273,7 @@ Each organisation has one `UserRegistry` under `org.eth`; each repository gets i
 3. Deploy organisation registry:
    `deployProxy(USER_REGISTRY_IMPL, registrySalt, abi.encodeCall(UserRegistry.initialize, (rootGrants)))`, where `registrySalt = uint256(keccak256(abi.encode(keccak256("UserRegistry"), namehash("org.eth"), 0)))`.
 4. On the registry containing `org.eth`, call `setSubregistry(uint256(labelhash("org")), orgRegistry)` and set/verify the child registry's `setParent(parentRegistry,"org")` when authorised.
-5. `RepoFactory.createRepo(orgRegistry, "repo", ownerSafe, policyHash, ensConfig)` deploys Dheet contracts, deploys the per-repo resolver and registry through the verified factory, then calls org registry `register("repo", ownerSafe, repoRegistry, repoResolver, ownerRoleBitmap, expiry)` through an authorised registrar adapter.
+5. `RepoFactory.createRepo(orgRegistry, "repo", ownerSafe, policyHash, ensConfig)` deploys Dithub contracts, deploys the per-repo resolver and registry through the verified factory, then calls org registry `register("repo", ownerSafe, repoRegistry, repoResolver, ownerRoleBitmap, expiry)` through an authorised registrar adapter.
 6. Grant the repo registrar adapter root roles with `repoRegistry.grantRootRoles(ROLE_REGISTRAR | ROLE_RENEW, repoRegistrar)`. The initial root grant must include the corresponding admin roles or this call cannot succeed.
 7. Set records atomically in resolver initialisation where possible, otherwise call name-based setters: `setText(dnsName,"git.repo",...)`, `setText(...,"git.chain",...)`, `setText(...,"git.manifest",...)`, `setContenthash(dnsName, archiveContenthash)`.
 8. Verify `VerifiableFactory.verifyContract(proxy)` and `UniversalHelper.findCanonicalRegistry(dnsName)` before displaying the repository as verified.
@@ -284,7 +284,7 @@ The client reuses `ensv2-env/ens-cli` calldata builders and its unsigned `{to,da
 
 Registry constants are exact ENSv2 values: registrar `1<<0`, register-reserved `1<<4`, set-parent `1<<8`, unregister `1<<12`, renew `1<<16`, set-subregistry `1<<20`, set-resolver `1<<24`, transfer-admin `(1<<28)<<128`, set-URI `1<<36`, upgrade `1<<124`; each regular role's admin is `role<<128`.
 
-| Dheet role | ENSv2 grants | Dheet L1 grants |
+| Dithub role | ENSv2 grants | Dithub L1 grants |
 |---|---|---|
 | Owner | repo token setter roles + admins, transfer-admin; resolver all required roles/admins; registry root admins; upgrade during bootstrap | `DEFAULT_ADMIN`, policy admin, emergency pause, treasury; normally a Safe |
 | Maintainer | name-scoped set-resolver, set-subregistry, renew; resolver `ROLE_SET_TEXT`, `ROLE_SET_CONTENTHASH`, `ROLE_LINK` only as needed | ref update, force push if policy permits, merge, PR/issue moderation |
@@ -298,7 +298,7 @@ Production bootstrap removes dangerous root setter roles once name-scoped owners
 
 | Record | Value |
 |---|---|
-| `git.repo` | `dheet:1:<chainId>:<repoFactory>:<repoId>` |
+| `git.repo` | `dithub:1:<chainId>:<repoFactory>:<repoId>` |
 | `git.head` | default ref name plus `(seq, oid)` compact JSON |
 | `git.manifest` | `arkiv://<chainId>/<manifestOid>` and cold fallback URI |
 | `git.refroot` | latest L1 ref-state Merkle root and block |
@@ -306,7 +306,7 @@ Production bootstrap removes dangerous root setter roles once name-scoped owners
 | `git.release` | latest signed release manifest digest |
 | `contenthash` | preferred immutable web/archive snapshot (IPFS/Arweave contenthash) |
 | `url` | static explorer URL |
-| `agent-context` | compact Markdown/JSON describing Dheet operations and verification |
+| `agent-context` | compact Markdown/JSON describing Dithub operations and verification |
 | `agent-endpoint[mcp]` | optional read-only repository MCP endpoint; never authoritative |
 
 ENS writes are batched and occur on repository creation, default-head changes, periodic manifest checkpoints, releases, role changes, and recovery—not every push.
@@ -315,9 +315,9 @@ ENS writes are batched and occur on repository creation, default-head changes, p
 
 - Build `DheetRepoRegistrar` from the tutorial's thin registrar: validate labels/policy, collect optional fee, call `IPermissionedRegistry.register`, and expose renew. Grant it only `ROLE_REGISTRAR|ROLE_RENEW` at root.
 - Subname expiry is at least 400 days and renewed when under 90 days. `.eth` has a 28-day grace period and subsequent 21-day decaying premium; anyone may renew. Treasury automation renews the parent early.
-- Transfer requires current-owner `ROLE_CAN_TRANSFER_ADMIN`. Safe transfers additionally require emancipation and no third-party assignees. Organisation transfers go through a Safe/timelock and rotate Dheet admins atomically where possible.
+- Transfer requires current-owner `ROLE_CAN_TRANSFER_ADMIN`. Safe transfers additionally require emancipation and no third-party assignees. Organisation transfers go through a Safe/timelock and rotate Dithub admins atomically where possible.
 - For an immutable release, revoke transfer-admin and setter/link/upgrade roles plus their admins only after archive replication and a dry-run verification.
-- Author display uses Universal Resolver reverse resolution and then forward-verifies the address. At launch reverse writes remain on v1 infrastructure; Dheet treats future L2 reverse claims as optional display metadata.
+- Author display uses Universal Resolver reverse resolution and then forward-verifies the address. At launch reverse writes remain on v1 infrastructure; Dithub treats future L2 reverse claims as optional display metadata.
 - Index `ProxyDeployed`; `RegistryCreated`, `LabelRegistered`, `LabelReserved`, `LabelUnregistered`, `ExpiryUpdated`, `SubregistryUpdated`, `ResolverUpdated`, `TokenRegenerated`, `ParentUpdated`, `TokenResource`, `URIUpdated`; ERC-1155 transfers; registrar `CommitmentMade`, `NameRegistered`, `NameRenewed`; resolver `Linked`, `ResolverCreated`, `AddressUpdated`, `TextUpdated`, `DataUpdated`, `ContenthashUpdated`, `ABIUpdated`, `NameUpdated`, `InterfaceUpdated`, `ResourceArgument`; and `EACRolesChanged`.
 - Key indexed role state by `(contract, resource)`. Follow `TokenRegenerated`; use resource/labelhash as stable identity. `SubregistryUpdated` is authoritative for parent→child; `ParentUpdated` is only a hint.
 
@@ -327,10 +327,10 @@ ENS writes are batched and occur on repository creation, default-head changes, p
 
 - Operational identity is an Ethereum address; human identity is a forward-and-reverse-verified ENS name.
 - Git's embedded GPG/SSH/X.509 commit/tag signatures are preserved and verified normally.
-- Dheet adds an optional EIP-712 attestation without changing Git bytes:
+- Dithub adds an optional EIP-712 attestation without changing Git bytes:
 
 ```text
-DheetObject(repoId bytes32, dheetOid bytes32, gitOid bytes32, gitAlg uint8,
+DheetObject(repoId bytes32, dithubOid bytes32, gitOid bytes32, gitAlg uint8,
             objectType uint8, author address, keyEpoch uint64, issuedAt uint64)
 DheetRef(repoId bytes32, refKey bytes32, oldOid bytes32, newOid bytes32,
          manifest bytes32, expectedSeq uint64, nonce uint256, deadline uint64)
@@ -361,7 +361,7 @@ It requires the current `(oid,seq)` to equal `(expectedOld,expectedSeq)`, policy
 ```mermaid
 sequenceDiagram
   participant G as Git
-  participant D as git-remote-dheet
+  participant D as git-remote-dithub
   participant A as Arkiv
   participant L as L1 RefRegistry
   participant C as Cold archive
@@ -382,7 +382,7 @@ sequenceDiagram
 - Force push sets a flag and requires a separate capability; prior ref events remain on L1 and in archives.
 - Concurrent writers race at CAS; exactly one succeeds. The loser fetches the winning head, rebases/merges, and retries with a new signature.
 - Forks have distinct `repoId`s and contracts. A PR references `(sourceRepo, sourceRef, headOid)` and target repo/ref.
-- Merge result is an ordinary Git merge commit. Dheet never auto-resolves textual conflicts differently from Git. PR merge checks the reviewed head, target expected old OID, required approvals, and CI attestations in one L1 call.
+- Merge result is an ordinary Git merge commit. Dithub never auto-resolves textual conflicts differently from Git. PR merge checks the reviewed head, target expected old OID, required approvals, and CI attestations in one L1 call.
 - Tags are refs. Protected/immutable releases prohibit replacement after publication.
 
 ### Finality and reorgs
@@ -430,7 +430,7 @@ At the placeholder `capacityRate=14`, 2-second blocks, 1 gwei, and GLM=$0.10:
 - 1 decimal GB-month raw storage: `18.144 GLM ≈ $1.81`.
 - 1 GB-year raw storage: `217.728 GLM ≈ $21.77`; with 10% metadata/index overhead: about `239.5 GLM ≈ $23.95`.
 - Initial 1 GB mostly-nonzero calldata floor is about `40 GLM ≈ $4.00`, excluding GolemDB work, so rough first-year Arkiv cost is **about 280 GLM / $28**, before congestion and compression.
-- A 5+ character `.eth` parent is documented at $8/year for one year; repo subnames in Dheet's own registry have no ENS rent unless governance adds one, but they incur L1 gas. Three- and four-character parent names are far more expensive ($640/$160 per year baseline).
+- A 5+ character `.eth` parent is documented at $8/year for one year; repo subnames in Dithub's own registry have no ENS rent unless governance adds one, but they incur L1 gas. Three- and four-character parent names are far more expensive ($640/$160 per year baseline).
 - L1 gas is quoted at action time. Product estimates must separate Arkiv GLM, Ethereum gas, ENS rent/payment token, cold-storage contracts, and pinner bounty.
 
 These numbers are planning examples only; current Arkiv prices are explicitly uncalibrated and genesis-fixed.
@@ -481,7 +481,7 @@ Events: `RepoCreated`, `PolicyUpdated`, `RefUpdated`, `RefDeleted`, `ReleaseAnch
 
 ### Design constraints
 
-- `RepoFactory` is immutable or versioned; it creates minimal proxies/clones only for Dheet contracts and calls ENS's separate Verifiable Factory for ENS proxies.
+- `RepoFactory` is immutable or versioned; it creates minimal proxies/clones only for Dithub contracts and calls ENS's separate Verifiable Factory for ENS proxies.
 - `RefRegistry` stores only current `(oid,seq,flags)` and aggregate root. Events carry history. Batch updates share one root update and transaction.
 - `RepoAccess` uses explicit bitmaps with admin separation, maximum-scope checks, EIP-712 domain separation by chain and contract, per-signer nonces, and EIP-1271.
 - Protected-branch policy is a small audited state machine: fast-forward attestation mode, required approvals, allowed signer set/root, force-push capability, timelock, and pause. Complex CI policy is represented by signed attestations, not arbitrary on-chain execution.
@@ -500,25 +500,25 @@ Events: `RepoCreated`, `PolicyUpdated`, `RefUpdated`, `RefDeleted`, `ReleaseAnch
 ### Commands
 
 ```text
-dheet init [--name repo.org.eth]
-dheet clone dheet://repo.org.eth [path] [--depth N] [--filter blob:none]
-dheet push [remote] [refspec] [--dry-run] [--wait safe]
-dheet pull|fetch [remote] [refspec]
-dheet fork repo.org.eth --as fork-name
-dheet pr create|show|list|checkout|merge
-dheet review approve|request-changes|comment
-dheet issue create|show|list|close
-dheet release create <tag> --immutable
-dheet renew [--all] [--fund amount]
-dheet whois <name|address|repoId>
-dheet verify [--full] [--at block]
-dheet recover <name> [--from ipfs://...]
-dheet daemon start|status|stop
+dithub init [--name repo.org.eth]
+dithub clone dithub://repo.org.eth [path] [--depth N] [--filter blob:none]
+dithub push [remote] [refspec] [--dry-run] [--wait safe]
+dithub pull|fetch [remote] [refspec]
+dithub fork repo.org.eth --as fork-name
+dithub pr create|show|list|checkout|merge
+dithub review approve|request-changes|comment
+dithub issue create|show|list|close
+dithub release create <tag> --immutable
+dithub renew [--all] [--fund amount]
+dithub whois <name|address|repoId>
+dithub verify [--full] [--at block]
+dithub recover <name> [--from ipfs://...]
+dithub daemon start|status|stop
 ```
 
-### `git-remote-dheet`
+### `git-remote-dithub`
 
-- Registered by executable naming convention; URLs are `dheet://repo.org.eth` or `dheet::<repoId>`.
+- Registered by executable naming convention; URLs are `dithub://repo.org.eth` or `dithub::<repoId>`.
 - P0 implements remote-helper `capabilities`, `list`, `fetch`, and `push`; use `connect`/protocol-v2 only after correctness is proven.
 - `list` is built from L1 ref state/index checkpoint, not an Arkiv mutable ref.
 - `fetch <oid> <name>` computes missing reachability, downloads verified chunks/packs in parallel, and feeds `git index-pack --stdin --fix-thin` or writes verified loose objects.
@@ -595,7 +595,7 @@ Everything is readable; encryption is absent. Authors must assume Git history an
 |---|---|---|---|
 | Spoofing | fake ENS/repo/indexer | canonical registry walk, factory/code-hash verification, EIP-712 signatures, forward-verified reverse ENS | compromised ENS owner can repoint future discovery |
 | Spoofing | signer/key compromise | Safe, hardware keys, epochs, revocation, timelock, branch policy | attacker can act until revocation/finality |
-| Tampering | malicious Git object/chunk/pack | recompute Git+Dheet+BLAKE3 hashes, pack checksum, fsck, bounded parser | parser implementation bugs |
+| Tampering | malicious Git object/chunk/pack | recompute Git+Dithub+BLAKE3 hashes, pack checksum, fsck, bounded parser | parser implementation bugs |
 | Tampering | lying Arkiv RPC/indexer | L1 ref authority, content hashes, multi-RPC comparison, replayable events | availability and omission remain possible |
 | Tampering | front-running ref update | expected old+seq CAS, signer nonce/deadline, transaction privacy optional | public pending updates reveal intent |
 | Repudiation | denied review/push | typed signatures, L1 events, immutable snapshots | contract-wallet policy may change; historical state needed |
@@ -623,8 +623,8 @@ Everything is readable; encryption is absent. Authors must assume Git history an
 ## 16. Interoperability
 
 - Import reads existing refs/objects and publishes without rewriting. Export fetches all reachable objects and emits a normal bare Git repository/bundle.
-- GitHub/GitLab bridge runs bidirectionally with loop-prevention trailers and mapping `(forge,event/id) ↔ Dheet record`. Mirroring is an availability feature, never authority.
-- `dheet mirror github owner/repo` can import issues/PRs as signed bridge records that clearly identify the bridge signer and source URL.
+- GitHub/GitLab bridge runs bidirectionally with loop-prevention trailers and mapping `(forge,event/id) ↔ Dithub record`. Mirroring is an availability feature, never authority.
+- `dithub mirror github owner/repo` can import issues/PRs as signed bridge records that clearly identify the bridge signer and source URL.
 - CI hooks are signed attestations over `(repoId,commitOid,workflowHash,result,artifactRoot)`. Protected policy names accepted issuers; runner logs/artifacts use cold storage.
 - Webhooks are generated from L1/Arkiv/indexer events with replay IDs. Local `post-receive` compatibility runs only user-approved local commands.
 - Radicle informs peer replication and signed collaboration objects; git-ssb informs append-only social discovery; Gitopia informs chain+archive collaboration; Pijul's patch algebra is deliberately not adopted because Git semantics are a hard requirement.
@@ -633,8 +633,8 @@ Everything is readable; encryption is absent. Authors must assume Git history an
 
 ```text
 packages/
-  cli/                 dheet command and JSON interface
-  remote-helper/       git-remote-dheet
+  cli/                 dithub command and JSON interface
+  remote-helper/       git-remote-dithub
   sdk/                 codecs, hashes, clients, verification
   sync/                planner, uploader, fetcher, recovery
   indexer/             L1/ENS/Arkiv projections and API
@@ -650,7 +650,7 @@ Initial pinned baseline, locked exactly in lockfiles: Bun 1.3.6, TypeScript 5.9.
 Local development:
 
 - Arkiv: `docs/arkiv/arkiv-node/scripts/kurtosis/up.py` two-node sequencer/follower devnet plus Bun SDK integration tests.
-- ENS/L1: adapt `ensv2-env/ens-cli/e2e/harness.ts` to Anvil forks; use local deployed Dheet contracts and verified ENSv2 addresses.
+- ENS/L1: adapt `ensv2-env/ens-cli/e2e/harness.ts` to Anvil forks; use local deployed Dithub contracts and verified ENSv2 addresses.
 - Full e2e: orchestrator starts Arkiv Kurtosis, Anvil, local IPFS, two identities, indexer, and CLI.
 - Rabdi: chain 7794095, `https://rpc.rabdi.db-chain.testnet.arkiv.network`, test tGLM from hub faucet; access key via `x-api-key`/SDK configuration for elevated quotas.
 
@@ -690,14 +690,14 @@ Every phase ships an ADR, threat-model delta, cost benchmark, and rollback/recov
 ### Mandatory two-identity e2e
 
 ```text
-Alice: dheet init --name demo.alice.eth
-Alice: git commit && git push dheet main
-Bob:   git clone dheet://demo.alice.eth
-Bob:   git checkout -b feature && git commit && git push dheet feature
-Bob:   dheet pr create --base main --head feature
-Alice: dheet review approve <pr>
-Alice: dheet pr merge <pr>
-Bob:   git fetch dheet && git merge --ff-only dheet/main
+Alice: dithub init --name demo.alice.eth
+Alice: git commit && git push dithub main
+Bob:   git clone dithub://demo.alice.eth
+Bob:   git checkout -b feature && git commit && git push dithub feature
+Bob:   dithub pr create --base main --head feature
+Alice: dithub review approve <pr>
+Alice: dithub pr merge <pr>
+Bob:   git fetch dithub && git merge --ff-only dithub/main
 Assert: both Git ODBs fsck; L1 head=mergeOid; Arkiv projection seq matches; archive pack verifies.
 ```
 
@@ -731,7 +731,7 @@ Phase acceptance tests are the exit criteria in section 18 and run in CI where d
 ### Governance and licensing
 
 - Protocol specs/ADRs: CC0 or CC-BY-4.0; client/indexer/web: Apache-2.0 or MIT; contracts: MIT. Dependencies are reviewed for compatibility, especially Git implementations and ENS contracts.
-- Dheet Improvement Proposals (DIPs) govern wire/schema changes. Consensus-critical changes require specification, vectors, two implementations or one implementation plus independent review, migration plan, and activation block/version.
+- Dithub Improvement Proposals (DIPs) govern wire/schema changes. Consensus-critical changes require specification, vectors, two implementations or one implementation plus independent review, migration plan, and activation block/version.
 - Repo-level governance is owner-defined (EOA, Safe, DAO timelock). Protocol deployment manifests are signed by a release multisig and reproducibly generated.
 - Security council may pause shared infrastructure and vulnerable optional contracts, but cannot alter repository objects or refs without repo-specific authority.
 
@@ -740,7 +740,7 @@ Phase acceptance tests are the exit criteria in section 18 and run in CI where d
 | ADR | Choice | Rejected alternative | Why |
 |---|---|---|---|
 | 001 | Git object semantics | new patch/CRDT VCS | immediate compatibility and mature tooling |
-| 002 | SHA-256 Dheet digest + Git OID mapping | BLAKE3-only OID | Git SHA-1/SHA-256 interoperability; BLAKE3 retained for chunks |
+| 002 | SHA-256 Dithub digest + Git OID mapping | BLAKE3-only OID | Git SHA-1/SHA-256 interoperability; BLAKE3 retained for chunks |
 | 003 | L1 RefRegistry CAS | Arkiv mutable ref | Arkiv has no contracts/multi-writer CAS |
 | 004 | immutable Arkiv projections | patch shared entities | owner-gated patches and no history queries make append-only safer |
 | 005 | renewable Arkiv + cold archive | “permanent” Arkiv entity | current network rejects permanence and can be replaced |
@@ -754,7 +754,7 @@ Phase acceptance tests are the exit criteria in section 18 and run in CI where d
 
 ### A. Glossary
 
-- **Dheet OID:** SHA-256 of canonical Git object header+payload used as protocol-wide 32-byte key.
+- **Dithub OID:** SHA-256 of canonical Git object header+payload used as protocol-wide 32-byte key.
 - **Git OID:** native SHA-1 or SHA-256 identifier used by the repository.
 - **Manifest:** immutable mapping of objects/chunks/archives committed by a Merkle root.
 - **Projection:** non-authoritative Arkiv copy of an L1 event for query speed.
@@ -797,14 +797,14 @@ Phase acceptance tests are the exit criteria in section 18 and run in CI where d
 
 ```text
 repo.org.eth
-  git.repo      = dheet:1:1:0xRepoFactory:0xRepoId
+  git.repo      = dithub:1:1:0xRepoFactory:0xRepoId
   git.head      = {"ref":"refs/heads/main","seq":42,"oid":"0x..."}
   git.manifest  = arkiv://7794095/0xManifestOid ipfs://bafy...
   git.refroot   = {"block":23456789,"root":"0x..."}
   git.contracts = {"refRegistry":"0x...","manifest":"0xDeploymentManifestHash"}
   contenthash   = ipfs://bafy...
-  url           = https://explorer.dheet.dev/repo.org.eth
-  agent-context = Dheet repository. Verify ENS, L1 ref root, manifest, then Git OIDs.
+  url           = https://explorer.dithub.dev/repo.org.eth
+  agent-context = Dithub repository. Verify ENS, L1 ref root, manifest, then Git OIDs.
 ```
 
 ### D. Clone sequence
@@ -812,12 +812,12 @@ repo.org.eth
 ```mermaid
 sequenceDiagram
   participant U as User/Git
-  participant D as Dheet helper
+  participant D as Dithub helper
   participant E as ENSv2
   participant L as L1
   participant A as Arkiv
   participant C as Cold archive
-  U->>D: clone dheet://repo.org.eth
+  U->>D: clone dithub://repo.org.eth
   D->>E: resolve records + canonical registry
   D->>L: read contracts, refs, ref root
   D->>A: query manifest/objects
@@ -891,7 +891,7 @@ Web references used to verify gaps/freshness:
 
 1. Can Arkiv expose verifiable query membership/non-membership proofs and write receipts? Decide before RenewalEscrow leaves experimental status.
 2. What are calibrated Rabdi/mainnet storage weights and practical throughput for 120 KiB chunks? Benchmark in P0.
-3. Should canonical Dheet OID include Git type/length exactly as Git does or use a versioned CBOR wrapper? Baseline chooses exact Git framing; freeze with vectors in P0.
+3. Should canonical Dithub OID include Git type/length exactly as Git does or use a versioned CBOR wrapper? Baseline chooses exact Git framing; freeze with vectors in P0.
 4. Which cold pair is default: IPFS+Filecoin, IPFS+Arweave, or Swarm+Arweave? Select by P5 based on retrieval/SLA/cost tests.
 5. Can a succinct fast-forward/reachability proof be added economically, or should protected branches rely on maintainer attestations? Prototype in P3.
 6. What maximum object/blob sizes are acceptable in public gateways? Set from parser and browser benchmarks in P1.
@@ -903,7 +903,7 @@ Web references used to verify gaps/freshness:
 ## First 10 tasks to start tomorrow
 
 1. Create the monorepo workspaces and pin the baseline toolchain/lockfiles.
-2. Write protocol test vectors for SHA-1 Git OID, SHA-256 Git OID, Dheet OID, BLAKE3 chunk hash, and manifest Merkle roots.
+2. Write protocol test vectors for SHA-1 Git OID, SHA-256 Git OID, Dithub OID, BLAKE3 chunk hash, and manifest Merkle roots.
 3. Implement a read-only P0 pack parser/chunker and verify output with `git index-pack`, `verify-pack`, and `fsck`.
 4. Start the Arkiv Kurtosis devnet and prove create→query→keyset-page→extend for one readonly permissionless entity.
 5. Upload and reconstruct one real commit/tree/blob on Rabdi, recording exact gas and storage-unit measurements.
@@ -911,4 +911,4 @@ Web references used to verify gaps/freshness:
 7. Extract reusable unsigned-calldata and deployment-discovery code from `ensv2-env/ens-cli`.
 8. Build an Anvil Sepolia-fork test that deploys/validates one repo UserRegistry and per-repo PermissionedResolver through VerifiableFactory.
 9. Specify and implement the minimal non-upgradeable `RefRegistry` CAS contract with fuzz/invariant tests.
-10. Wire a vertical CLI spike: `dheet init` → Arkiv upload → L1 ref anchor → fresh verified clone, and publish the measured P0 report.
+10. Wire a vertical CLI spike: `dithub init` → Arkiv upload → L1 ref anchor → fresh verified clone, and publish the measured P0 report.

@@ -1,12 +1,13 @@
 {
-  "name": "@dheet/remote-helper",
+  "name": "@dithub/remote-helper",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "bin": {
+    "git-remote-dithub": "./src/index.ts",
     "git-remote-dheet": "./src/index.ts"
   },
   "dependencies": {
-    "@dheet/sdk": "workspace:*"
+    "@dithub/sdk": "workspace:*"
   }
 }

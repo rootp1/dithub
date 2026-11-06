@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { chunkBytes } from './chunks.ts'
-import { dheetOid, gitOid, sha256, toBytes32GitOid } from './hash.ts'
+import { dithubOid, gitOid, sha256, toBytes32GitOid } from './hash.ts'
 import { isolatedGitEnvironment } from './process.ts'
 import type { GitObjectFormat, GitObjectType, ObjectDescriptor, RefDescriptor } from './types.ts'
 
@@ -83,7 +83,7 @@ function exportObject(repoPath: string, oid: string, algorithm: GitObjectFormat)
   const chunked = chunkBytes(payload)
   return {
     descriptor: {
-      dheetOid: dheetOid(type, payload),
+      dithubOid: dithubOid(type, payload),
       gitOid: toBytes32GitOid(oid),
       gitOidHex: oid,
       gitAlgorithm: algorithm,
