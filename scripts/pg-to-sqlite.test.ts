@@ -36,8 +36,8 @@ const fixture: Record<string, { cols: PgColumn[]; rows: Record<string, unknown>[
     rows: [{ id: '5', action: 'repo.create', ip: '10.0.0.1', metadata: { session: 'x', n: 2 } }],
   },
   deployments: {
-    cols: [col('chain_id', 'bigint', 'int8'), col('id', 'bigint', 'int8'), col('commit', 'bytea'), col('bundle_hash', 'bytea'), col('url', 'text'), col('attested', 'boolean', 'bool')],
-    rows: [{ chain_id: '11155111', id: '1', commit: b('aa'.repeat(20)), bundle_hash: b('bb'.repeat(32)), url: 'https://dithub.app', attested: true }],
+    cols: [col('id', 'bigint', 'int8'), col('commit', 'bytea'), col('bundle_hash', 'bytea'), col('url', 'text'), col('attested', 'boolean', 'bool')],
+    rows: [{ id: '1', commit: b('aa'.repeat(20)), bundle_hash: b('bb'.repeat(32)), url: 'https://dithub.app', attested: true }],
   },
   orgs: {
     cols: [col('id', 'bigint', 'int8'), col('login', 'USER-DEFINED', 'citext'), col('ens_name', 'text'), col('created_by', 'bigint', 'int8')],
@@ -103,7 +103,8 @@ describe('copyDatabase', () => {
     expect(JSON.parse(c.parent_oids)).toEqual(['03'.repeat(20), '04'.repeat(20)])
     const [a] = await lite`SELECT metadata, ip FROM audit_log`
     expect(JSON.parse(a.metadata)).toEqual({ session: 'x', n: 2 })
-    const [d] = await lite`SELECT "commit", attested FROM deployments`
+    const [d] = await lite`SELECT chain_id, "commit", attested FROM deployments`
+    expect(d.chain_id).toBe(11155111)   // filled in: production Postgres never had the column
     expect(Buffer.from(d.commit).toString('hex')).toBe('aa'.repeat(20))
     expect(d.attested).toBe(1)
     // AUTOINCREMENT continues after the copied ids

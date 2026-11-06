@@ -97,6 +97,9 @@ export function pgSource(pg: SQL): PgSource {
   }
 }
 
+/** NOT NULL columns the SQLite schema has but an older Postgres may lack: value to fill in. Every pre-migration release was on Sepolia. */
+const FILL: Record<string, Record<string, unknown>> = { deployments: { chain_id: 11155111 } }
+
 export async function copyDatabase(src: PgSource, lite: SQL, opts: { pageSize?: number; log?: (msg: string) => void } = {}): Promise<CopyReport> {
   const pageSize = opts.pageSize ?? 2000
   const log = opts.log ?? (() => {})
@@ -119,11 +122,13 @@ export async function copyDatabase(src: PgSource, lite: SQL, opts: { pageSize?: 
       const pgCols = await src.columns(table)
       const cols = pgCols.filter((c) => liteCols.has(c.name))
       for (const c of pgCols) if (!liteCols.has(c.name)) report.droppedColumns.push(`${table}.${c.name}`)
-      const insert = `INSERT OR REPLACE INTO ${q(table)} (${cols.map((c) => q(c.name)).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`
+      const fill = Object.entries(FILL[table] ?? {}).filter(([name]) => liteCols.has(name) && !pgCols.some((c) => c.name === name))
+      const names = [...cols.map((c) => c.name), ...fill.map(([name]) => name)]
+      const insert = `INSERT OR REPLACE INTO ${q(table)} (${names.map(q).join(', ')}) VALUES (${names.map(() => '?').join(', ')})`
       let source = 0
       for await (const page of src.rows(table, cols.map((c) => c.name), pageSize)) {
         await lite.begin(async (tx) => {
-          for (const row of page) await tx.unsafe(insert, cols.map((c) => convertValue(row[c.name], c)))
+          for (const row of page) await tx.unsafe(insert, [...cols.map((c) => convertValue(row[c.name], c)), ...fill.map(([, v]) => v)])
         })
         source += page.length
       }
