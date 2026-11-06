@@ -1,0 +1,46 @@
+name: monitor
+
+# Daily check of production. A failed run emails the repo owner (GitHub's default notification for failed workflows).
+on:
+  schedule: [{ cron: '23 6 * * *' }]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  monitor:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      SITE: https://dithub.app
+      L1_NETWORK: ${{ vars.L1_NETWORK || 'base' }}
+      L1_RPC_URL: ${{ secrets.BASE_RPC_URL }}
+      # Public addresses (README): the worker pays one Base tx per push, the deployer one per release.
+      RELAYER: '0x7e290CA88091C8635cC78fE58bB1f6e1361b097c'
+      DEPLOYER: '0xe5F2164bD59ba9F19fC76F1Aa1E55199a159A16b'
+      RELAYER_MIN_WEI: '200000000000000'   # 0.0002 ETH: a few hundred anchors of headroom
+      DEPLOYER_MIN_WEI: '50000000000000'   # 0.00005 ETH
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - uses: oven-sh/setup-bun@v2.0.1
+        with:
+          bun-version: 1.4.4
+      - run: bun install --frozen-lockfile
+      - name: API is healthy
+        run: curl -fsS --max-time 20 "$SITE/api/health"
+      - name: Live site matches the latest on-chain release
+        run: bun scripts/verify-site.ts
+      - name: Wallets can pay for anchors and releases
+        run: |
+          bun -e '
+            const rpc = process.env.L1_RPC_URL || "https://mainnet.base.org"
+            const bal = async (a) => BigInt((await (await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" },
+              body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getBalance", params: [a, "latest"] }) })).json()).result)
+            let low = false
+            for (const [name, addr, min] of [["relayer", process.env.RELAYER, process.env.RELAYER_MIN_WEI], ["deployer", process.env.DEPLOYER, process.env.DEPLOYER_MIN_WEI]]) {
+              const b = await bal(addr)
+              console.log(`${name} ${addr}: ${Number(b) / 1e18} ETH (minimum ${Number(min) / 1e18})`)
+              if (b < BigInt(min)) { console.log(`::error::${name} ${addr} is low on ETH; top it up on Base`); low = true }
+            }
+            if (low) process.exit(1)'
