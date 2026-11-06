@@ -18,7 +18,7 @@ const git = (cwd: string, ...a: string[]) => { const r = Bun.spawnSync(['git', '
 const html = await (await fetch(BASE + '/')).text(); ok(html.includes('<title>Dithub</title>'), 'web app is served over HTTPS')
 const acct = privateKeyToAccount(process.env.DHEET_SEAT_KEY as `0x${string}`)
 const { nonce } = await (await req('/api/auth/nonce')).json() as { nonce: string }
-const message = createSiweMessage({ address: acct.address, chainId: 11155111, domain: host, nonce, uri: BASE, version: '1' })
+const message = createSiweMessage({ address: acct.address, chainId: 8453, domain: host, nonce, uri: BASE, version: '1' })
 const login = await (await req('/api/auth/verify', { method: 'POST', body: JSON.stringify({ message, signature: await acct.signMessage({ message }) }) })).json() as { user?: { login: string } }
 ok(login.user?.login, 'SIWE wallet login against production')
 const name = `smoke-${Date.now().toString(36)}`
