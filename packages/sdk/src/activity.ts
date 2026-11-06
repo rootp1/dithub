@@ -113,11 +113,11 @@ export async function listActivity(connection: Connection, repoId: Hex, limit = 
   return result.entities
 }
 
-export async function resolveNameOnArkiv(connection: Connection, name: string) {
+export async function resolveNameOnArkiv(connection: Connection, name: string, writer?: `0x${string}`) {
   const result = await connection.publicClient
     .select({ $key: true, name: true, repo: true, owner: true, ctime: true })
     .from(ArkivNameSchema, { onMismatch: 'throw' })
-    .where(and(eq('name', name)))
+    .where(and(eq('name', name), ...(writer ? [eq('$creator', addr(writer))] : [])))
     .orderBy(asc('ctime'))
     .limit(100)
     .fetch()

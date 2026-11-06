@@ -3,6 +3,7 @@ interface Eth { request(a: { method: string; params?: unknown[] }): Promise<unkn
 const eth = (window as unknown as { ethereum?: Eth }).ethereum
 const app = document.getElementById('app')!, nav = document.getElementById('nav')!
 import { esc, short, ago, etherscanTx, isTxHash, parsePaths, countdown, parseDiff, renderDiff } from './helpers.ts'
+import { recoveryPanel } from './recovery.ts'
 import { ATTESTATIONS, REGISTRY, SEL_LATEST_ATTESTATION, SEL_LATEST_RELEASE, bundleHashOf, decodeLatestAttestation, decodeLatestRelease, ethCall, evaluate, sha256Hex, type BuildJson, type Check, type OnchainAttestation, type OnchainRelease } from './verify.ts'
 const etherscan = (chain: number | null, tx: string) => (chain === 11155111 ? `https://sepolia.etherscan.io/tx/${tx}` : '#')
 
@@ -206,6 +207,27 @@ async function repoPage(owner: string, name: string, tab: string, params: URLSea
   app.innerHTML = `<header class="repo-heading"><div class="repo-heading-icon" aria-hidden="true">⌘</div><div class="grow"><div class="repo-heading-title"><h1><span>${esc(owner)}</span><span class="repo-slash">/</span>${esc(name)}</h1><span class="chip">${esc(repo.visibility)}</span></div>
     <p class="muted">${esc(repo.description ?? 'No description provided.')} <span class="mono repo-meta-id">${short(repo.repoId)}</span></p></div></header><nav class="tabs" aria-label="Repository">${tabs}</nav>${body}`
   wire?.()
+  if ((tab === 'code' || tab === 'ledger') && !repo.session) {
+    const panel = document.createElement('div')
+    app.append(panel)
+    const endpoint = `/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(name)}/recovery`
+    const refresh = async () => {
+      if (!panel.isConnected) return
+      try {
+        const status = await api(endpoint)
+        if (!panel.isConnected) return
+        panel.innerHTML = recoveryPanel(status, repo.canWrite, endpoint)
+        const retry = panel.querySelector<HTMLButtonElement>('#recovery-retry')
+        if (retry) retry.onclick = async () => {
+          retry.disabled = true
+          try { await api(endpoint, { method: 'POST' }); await refresh() }
+          catch (error) { panel.querySelector('#recovery-error')!.textContent = (error as Error).message; retry.disabled = false }
+        }
+        if (status.state === 'pending') setTimeout(refresh, 5000)
+      } catch { panel.innerHTML = '<div class="card muted">Recovery status could not be checked. Refresh to try again.</div>' }
+    }
+    void refresh()
+  }
 }
 
 // ---------------------------------------------------------------- shared UI bits
@@ -532,7 +554,7 @@ async function render() {
 }
 document.addEventListener('click', (e) => {
   const a = (e.target as HTMLElement).closest('a')
-  if (a && a.origin === location.origin && !a.target && a.pathname !== '#') { e.preventDefault(); history.pushState({}, '', a.href); render() }
+  if (a && a.origin === location.origin && !a.target && !a.hasAttribute('download') && a.pathname !== '#') { e.preventDefault(); history.pushState({}, '', a.href); render() }
 })
 window.addEventListener('popstate', render)
 api<{ user: typeof me }>('/api/me').then((r) => { me = r.user }).catch(() => {}).finally(render)

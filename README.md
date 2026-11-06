@@ -54,7 +54,9 @@ SITE=https://dithub.app bun scripts/verify-site.ts
 
 ## CROPS
 
-**Censorship resistance.** Repository code (chunked packfiles + manifest) and per-commit activity are published to Arkiv, and each push is anchored by one transaction to
+**Swarm recovery.** Set `SWARM_BEE_URL`, `SWARM_BATCH_ID`, and an independent `SWARM_READ_URL` on API and worker to enable streamed public-repository backups beyond the old small-repo limit. Arkiv stores trusted discovery pointers; Swarm stores Git bundles and manifests. Code and Ledger tabs show backup coverage and downloadable instructions. `dit recover` reads either backend automatically, or uses `--recovery-file` without Arkiv discovery. See [setup, retention, limits and verification](arkiv/swarm.md).
+
+**Censorship resistance.** In the default configuration, repository code (chunked packfiles + manifest) and per-commit activity are published to Arkiv, and each push is anchored by one transaction to
 `RefRegistry` on Ethereum Sepolia. If our server disappears, `arkiv-clone` rebuilds a repo from Arkiv alone, verifying the manifest hash and every BLAKE3 chunk.
 Public-org RBAC changes are a hash chain mirrored to Arkiv. Limits: the web app and API are still one server we operate; Arkiv entities expire after about 182.5 days unless renewed (the worker renews them).
 

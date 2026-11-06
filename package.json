@@ -27,7 +27,8 @@
     "test:dit": "bun test packages/dit",
     "build:vscode": "bun run --cwd packages/vscode build",
     "package:vscode": "bun run --cwd packages/vscode package",
-    "test:vscode": "bun test packages/vscode"
+    "test:vscode": "bun test packages/vscode",
+    "test:recovery": "bun test packages/sdk/test/swarm.test.ts apps/web/src/recovery.test.ts apps/worker/test/snapshots.test.ts"
   },
   "dependencies": {
     "@arkiv-network/sdk": "1.0.1",

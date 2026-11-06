@@ -6,6 +6,7 @@ import {
   renewArkivEntities, sha256, uploadManifestToArkiv, padOid,
 } from '../../../packages/sdk/src/index.ts'
 import { startDeploymentMirror } from './deployments.ts'
+import { startSnapshotWorker } from './snapshots.ts'
 
 const env = process.env
 const sql = new SQL(env.DATABASE_URL ?? '')
@@ -94,7 +95,7 @@ async function handlePush(job: { id: number; payload: { pushId: number; repoId: 
   }
 
   // 3. Code on Arkiv: publish the repo's packfile manifest + chunks (small repos, default branch only).
-  if (PUBLISH_CODE && push.ref_name === `refs/heads/${(await sql`SELECT default_branch FROM repos WHERE id = ${repoNum}`)[0]?.default_branch}`) {
+  if (PUBLISH_CODE && !(env.SWARM_BEE_URL && env.SWARM_BATCH_ID && env.SWARM_READ_URL) && push.ref_name === `refs/heads/${(await sql`SELECT default_branch FROM repos WHERE id = ${repoNum}`)[0]?.default_branch}`) {
     const diskPath = `${REPOS_DIR}/${repoId.slice(2)}.git`
     const size = Number((await sql`SELECT coalesce(sum(1),0) AS n FROM commits WHERE repo_id = ${repoNum}`)[0]?.n ?? 0)
     void size
@@ -172,6 +173,7 @@ async function renewal() {
 console.log(`dithub worker started, relayer ${relayer}`)
 await sql`UPDATE outbox SET status = 'pending' WHERE status = 'processing'`   // crash recovery
 startDeploymentMirror({ sql, arkiv, relayer })   // Sepolia DeployRegistry/Attestations -> Postgres + Arkiv (own loop)
+startSnapshotWorker({ sql, arkiv, reposDir: REPOS_DIR, workDir: WORK_DIR })
 let lastRenewal = 0
 for (;;) {
   const worked = await tick().catch((e) => { console.error('tick error', e); return false })

@@ -46,7 +46,7 @@ describe('dit recover: arguments, scrubbing, flow (fake SDK)', () => {
     const log: string[] = [], dest = join(mkdtempSync(join(tmpdir(), 'dit-rec-')), 'out')
     const r = await recover({ target: 'a/b', dir: dest, accessKey: 'k', arkivOnly: true, json: true }, fake(log))
     expect(log).toEqual(['name:a/b', 'newest', 'materialise:0xcdcd'])
-    expect(r).toMatchObject({ repoId: H, chunksVerified: 3, fsck: 'ok', manifestFrom: expect.stringContaining('newest push') })
+    expect(r).toMatchObject({ repoId: H, chunksVerified: 3, fsck: 'ok', manifestFrom: expect.stringContaining('newest trusted') })
     expect(String(r.commit)).toMatch(/^[0-9a-f]{40}$/)
     rmSync(dest, { recursive: true, force: true })
   })

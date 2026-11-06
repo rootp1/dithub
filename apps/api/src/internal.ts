@@ -96,6 +96,7 @@ export async function recordRefUpdates(repo: RepoRow, user: AuthUser | null, rep
         ${JSON.stringify({ ref: u.ref, commits: commits.length, forced, deleted })}::text::jsonb)`
       await tx`INSERT INTO outbox (aggregate_type, aggregate_id, kind, payload)
         VALUES ('push', ${push.id}, 'push', ${JSON.stringify({ pushId: Number(push.id), repoId: repoIdHex })}::text::jsonb)`
+      if (repo.visibility === 'public') await tx`INSERT INTO recovery_snapshots (repo_id, push_id) VALUES (${repo.id}, ${push.id}) ON CONFLICT DO NOTHING`
     })
     if (!deleted && u.ref.startsWith('refs/heads/') && !firstBranch) firstBranch = u.ref.replace('refs/heads/', '')
   }

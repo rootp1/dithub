@@ -271,20 +271,25 @@ Examples:
   dit deployments
   dit deployments latest --json`,
   recover: `dit recover <repo-id|owner/repo> [dir] [--manifest-hash 0x...] [--access-key KEY] [--arkiv-only]
+  [--bee-url URL] [--writer ADDRESS] [--recovery-file dheet-recovery.json] [--max-bytes N]
 
-Rebuilds a repository from Arkiv ALONE, without the Dithub server: fetches the manifest and chunks, verifies the
-manifest hash and every chunk hash, materialises a git clone and runs git fsck. Without --manifest-hash it uses
-the newest 'push' activity entity of the repo. owner/repo is resolved through the API, or through Arkiv name
-entities when the server is unreachable (or with --arkiv-only).
+Rebuilds a repository without the Dithub server. Discovers the latest trusted backup through Arkiv and
+automatically reads either legacy Arkiv chunks or a Swarm Git bundle. Verifies hashes and runs git fsck.
+owner/repo is resolved through the API, or through Arkiv with --arkiv-only. This flag only bypasses the API;
+Swarm snapshots still download from Swarm. Branches and tags are preserved; Git LFS objects are not included.
 
-Needs an Arkiv access key (https://hub.arkiv.network/access-keys): --access-key or $ARKIV_ACCESS_KEY.
-Only small PUBLIC repos on the default branch are mirrored to Arkiv, and entities expire after about 182 days
-unless renewed.
+Needs an Arkiv access key (https://hub.arkiv.network/access-keys): --access-key or $ARKIV_ACCESS_KEY, unless
+using --recovery-file. Downloaded instructions bypass Arkiv discovery and need only a working Swarm reader.
+--bee-url or $SWARM_READ_URL selects a Bee /bytes reader; the default is the public Swarm gateway.
+--max-bytes or $SWARM_MAX_BYTES sets the transfer limit (default 10 GiB).
+--writer or $DHEET_RECOVERY_WRITER selects a trusted relayer for self-hosted instances. The default trusts Dheet.
+Public repositories only. Arkiv records and Swarm storage both need ongoing funding and renewal.
 
 Examples:
   dit recover rootp1/smoke-mw4iu8wl
   dit recover 0xbcd0...e436 ./rescued --manifest-hash 0x9e83...6be5
-  dit recover alice/web --arkiv-only --json`,
+  dit recover alice/web --arkiv-only --json
+  dit recover alice/web --recovery-file dheet-recovery.json --bee-url http://localhost:1633`,
   version: `dit version [--json]    print the version`,
 }
 

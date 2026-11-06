@@ -14,6 +14,7 @@ import { pulls } from './pulls.ts'
 import { assistant } from './assistant.ts'
 import { deployments } from './deployments.ts'
 import { cliAuth } from './cli-auth.ts'
+import { recoveryEnabled, recoveryStatus, queueRecovery, recoveryWriter } from './recovery.ts'
 import { sessions, resolveAccess, scopeGuard, filterTree, scopedCommits, logSessionEvent } from './sessions.ts'
 import { suggestScope } from './suggest-scope.ts'
 import { tasks } from './tasks.ts'
@@ -159,6 +160,36 @@ app.get('/api/repos/:owner/:repo', async (c) => {
     defaultBranch: repo.default_branch, repoId: toHex(repo.dheet_repo_id), canWrite: scope ? false : await can(user, repo, 'write'), session: scope ? { id: scope.id, role: scope.role, ref: scope.ref, issueNumber: scope.issueNumber, expiresAt: scope.expiresAt } : null,
     cloneUrl: `${config.publicUrl}/git/${repo.owner_login}/${repo.name}`,
     refs: refs.map((r: { name: string; oid: Buffer }) => ({ name: r.name, oid: toHex(r.oid) })),
+  })
+})
+
+app.get('/api/repos/:owner/:repo/recovery', async (c) => {
+  const { repo, scope, denied } = await loadRepo(c)
+  if (!repo) return denied ? c.json({ error: denied.error }, denied.status) : c.json({ error: 'not found' }, 404)
+  if (scope) return c.json({ error: 'not available in a scoped session' }, 403)
+  return c.json(await recoveryStatus(repo))
+})
+
+app.post('/api/repos/:owner/:repo/recovery', async (c) => {
+  const { repo, user, scope, denied } = await loadRepo(c)
+  if (!repo) return denied ? c.json({ error: denied.error }, denied.status) : c.json({ error: 'not found' }, 404)
+  if (scope || !await can(user, repo, 'write')) return c.json({ error: 'write access required' }, 403)
+  if (repo.visibility !== 'public' || !recoveryEnabled()) return c.json({ error: 'Public recovery backups are not enabled' }, 409)
+  if (!await queueRecovery(repo)) return c.json({ error: 'Push a commit before creating a backup' }, 409)
+  return c.json({ queued: true }, 202)
+})
+
+app.get('/api/repos/:owner/:repo/recovery/instructions', async (c) => {
+  const { repo, scope, denied } = await loadRepo(c)
+  if (!repo) return denied ? c.json({ error: denied.error }, denied.status) : c.json({ error: 'not found' }, 404)
+  if (scope) return c.json({ error: 'not available in a scoped session' }, 403)
+  const status = await recoveryStatus(repo)
+  if (!status.latest) return c.json({ error: 'No completed recovery snapshot' }, 404)
+  c.header('Content-Disposition', 'attachment; filename="dheet-recovery.json"')
+  return c.json({ version: 1, repoId: toHex(repo.dheet_repo_id), name: `${repo.owner_login}/${repo.name}`,
+    writer: recoveryWriter(), pointer: { hash: status.latest.manifestHash, reference: status.latest.manifestReference, size: status.latest.manifestSize },
+    command: `dit recover ${toHex(repo.dheet_repo_id)} --recovery-file dheet-recovery.json`,
+    note: 'Keep this file to recover without Arkiv discovery. Storage must remain available. Git LFS objects are not included.',
   })
 })
 
