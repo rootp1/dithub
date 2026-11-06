@@ -38,7 +38,9 @@ const HTML_HEADERS = {
   'cache-control': 'no-store',
   'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
   'x-content-type-options': 'nosniff',
-  'referrer-policy': 'no-referrer',
+  // Not 'no-referrer': under that policy browsers send `Origin: null` on the approval form POST, which the same-origin check
+  // (correctly) refuses. 'same-origin' still sends nothing to other sites.
+  'referrer-policy': 'same-origin',
   'x-frame-options': 'DENY',
 }
 
