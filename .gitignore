@@ -11,6 +11,7 @@ infra/.env
 .env.app
 .data/
 infra/prod.env
+infra/bee.env
 demo-run/
 ensv2-env/
 docs/arkiv/

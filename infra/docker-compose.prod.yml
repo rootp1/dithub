@@ -34,6 +34,28 @@ services:
     volumes: ["repos:/data/repos:ro", "workerdata:/data/worker"]
     depends_on: { api: { condition: service_healthy } }
     deploy: { resources: { limits: { memory: 768m } } }
+  # Swarm light node for repository recovery uploads. API (1633) stays on the internal network: anyone who can reach it can spend
+  # the node's postage batch and tokens. Only the p2p port is published. Secrets live in infra/bee.env on the server (never synced).
+  bee:
+    image: ethersphere/bee:2.8.3
+    command: ["start", "--mainnet=false", "--network-id=10", "--full-node=false", "--swap-enable=true", "--api-addr=:1633", "--p2p-addr=:1634"]
+    env_file: [{ path: bee.env, required: false }]
+    environment: { BEE_DATA_DIR: /home/bee/.bee }
+    ports: ["1634:1634"]
+    volumes: ["beedata:/home/bee/.bee"]
+    restart: unless-stopped
+    deploy: { resources: { limits: { memory: 768m } } }
+  # Independent ultra-light reader: verifies every backup by downloading it from the network, and serves public read-only
+  # GET /swarm/bytes/<ref> through Caddy (Sepolia has no public Swarm gateway).
+  bee-reader:
+    image: ethersphere/bee:2.8.3
+    command: ["start", "--mainnet=false", "--network-id=10", "--full-node=false", "--swap-enable=false", "--api-addr=:1633", "--p2p-addr=:1635"]
+    env_file: [{ path: bee.env, required: false }]
+    environment: { BEE_DATA_DIR: /home/bee/.bee, BEE_BLOCKCHAIN_RPC_ENDPOINT: "" }
+    ports: ["1635:1635"]
+    volumes: ["beereaderdata:/home/bee/.bee"]
+    restart: unless-stopped
+    deploy: { resources: { limits: { memory: 512m } } }
   caddy:
     image: caddy:2-alpine
     env_file: [prod.env]
@@ -41,4 +63,4 @@ services:
     volumes: ["./Caddyfile:/etc/caddy/Caddyfile:ro", "caddydata:/data", "caddyconfig:/config"]
     depends_on: { api: { condition: service_healthy } }
     restart: unless-stopped
-volumes: { pgdata: {}, repos: {}, workerdata: {}, caddydata: {}, caddyconfig: {} }
+volumes: { pgdata: {}, repos: {}, workerdata: {}, caddydata: {}, caddyconfig: {}, beedata: {}, beereaderdata: {} }

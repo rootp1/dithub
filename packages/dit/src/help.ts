@@ -280,7 +280,8 @@ Swarm snapshots still download from Swarm. Branches and tags are preserved; Git 
 
 Needs an Arkiv access key (https://hub.arkiv.network/access-keys): --access-key or $ARKIV_ACCESS_KEY, unless
 using --recovery-file. Downloaded instructions bypass Arkiv discovery and need only a working Swarm reader.
---bee-url or $SWARM_READ_URL selects a Bee /bytes reader; the default is the public Swarm gateway.
+--bee-url or $SWARM_READ_URL selects a Bee /bytes reader on the Sepolia Swarm testnet; the default is the
+read-only proxy https://dithub.app/swarm. Point it at your own Bee node to avoid depending on Dithub.
 --max-bytes or $SWARM_MAX_BYTES sets the transfer limit (default 10 GiB).
 --writer or $DHEET_RECOVERY_WRITER selects a trusted relayer for self-hosted instances. The default trusts Dheet.
 Public repositories only. Arkiv records and Swarm storage both need ongoing funding and renewal.

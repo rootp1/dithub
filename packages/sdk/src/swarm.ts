@@ -5,7 +5,9 @@ import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 
 export const SWARM_REFERENCE = /^[a-f0-9]{64}$/i
-export const DEFAULT_SWARM_READ_URL = 'https://api.gateway.ethswarm.org'
+// Dithub runs on the Sepolia Swarm testnet, which has no public gateway; this read-only proxy is the default. Pass --bee-url to use any
+// other Bee node on the same network (e.g. your own) so recovery does not depend on Dithub at all.
+export const DEFAULT_SWARM_READ_URL = 'https://dithub.app/swarm'
 
 export interface SwarmOptions {
   url: string

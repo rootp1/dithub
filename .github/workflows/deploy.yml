@@ -56,7 +56,7 @@ jobs:
           rsync -az --delete \
             -e "ssh -i ~/.ssh/deploy_key" \
             --exclude '.git/' --exclude 'node_modules/' --exclude '.data/' --exclude '**/dist/' \
-            --exclude 'infra/prod.env' --exclude '.env' --exclude '.env.*' --exclude 'demo-run/' --exclude 'ensv2-env/' \
+            --exclude 'infra/prod.env' --exclude 'infra/bee.env' --exclude '.env' --exclude '.env.*' --exclude 'demo-run/' --exclude 'ensv2-env/' \
             ./ "$DEPLOY_USER@$DEPLOY_HOST:$DEPLOY_PATH/"
 
       - name: Rebuild and restart containers

@@ -9,10 +9,24 @@
 	request_body {
 		max_size 512MB
 	}
-	reverse_proxy api:3000 {
-		flush_interval -1
-		transport http {
-			response_header_timeout 10m
+	# Public read-only Swarm access for `dit recover`: only GET/HEAD of a 64-hex /bytes reference reaches the reader node.
+	@swarmread {
+		method GET HEAD
+		path_regexp ^/swarm/bytes/[0-9a-fA-F]{64}$
+	}
+	handle @swarmread {
+		uri strip_prefix /swarm
+		reverse_proxy bee-reader:1633
+	}
+	handle /swarm/* {
+		respond 404
+	}
+	handle {
+		reverse_proxy api:3000 {
+			flush_interval -1
+			transport http {
+				response_header_timeout 10m
+			}
 		}
 	}
 }
