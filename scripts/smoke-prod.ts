@@ -39,3 +39,5 @@ while (Date.now() < deadline) {
 }
 ok(c?.anchor?.status === 'anchored', 'commit anchored (Arkiv + L1) by the production worker')
 ok(c?.anchor?.l1Tx && c?.anchor?.arkivTx, `commit maps to L1 tx ${c?.anchor?.l1Tx?.slice(0, 14)}… and Arkiv tx ${c?.anchor?.arkivTx?.slice(0, 14)}…`)
+// Leave no credential behind: revoke the token this run created.
+await fetch(`${BASE}/api/cli/token`, { method: 'DELETE', headers: { authorization: `Bearer ${token}` } })

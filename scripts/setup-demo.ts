@@ -95,6 +95,9 @@ if (detail.refs.length === 0) {
   const auth = Buffer.from(`x:${token}`).toString('base64')
   git(work, ['push', '-q', repo.cloneUrl, 'main'], { GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: `http.${BASE}/.extraHeader`, GIT_CONFIG_VALUE_0: `Authorization: Basic ${auth}` })
   console.log(`pushed ${Object.keys(FILES).length} files to ${repo.owner}/${repo.name}`)
+  // The push token was only needed for this one push: revoke it so no credential is left behind.
+  const revoked = await fetch(`${BASE}/api/cli/token`, { method: 'DELETE', headers: { authorization: `Bearer ${token}` } })
+  console.log(revoked.ok ? 'push token revoked' : `warning: could not revoke the push token (${revoked.status})`)
 } else console.log('code already pushed')
 
 const open = await m.json<{ issues: { number: number; title: string }[] }>(`/api/repos/${repo.owner}/${repo.name}/issues?state=all&per_page=100`)

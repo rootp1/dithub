@@ -43,6 +43,22 @@ export function activate(ctx: vscode.ExtensionContext): void {
   issuesView.view = issuesTree
   const tasksTree = vscode.window.createTreeView('dithub.tasks', { treeDataProvider: tasksView })
 
+  const account = vscode.window.createStatusBarItem('dithub.account', vscode.StatusBarAlignment.Left, 51)
+  account.name = 'Dithub account'
+  account.command = 'dithub.account'
+  async function updateAccount(): Promise<void> {
+    if (await auth.signedIn()) {
+      account.text = `$(account) @${auth.login ?? 'dithub'}`
+      account.tooltip = `Signed in to ${auth.host}${auth.login ? ` as @${auth.login}` : ''}. Click for Sign out / Switch account.`
+    } else {
+      account.text = '$(account) Dithub: Sign in'
+      account.tooltip = `Not signed in to ${auth.host}. Click to sign in.`
+    }
+    account.show()
+  }
+  void updateAccount()
+  ctx.subscriptions.push(account, auth.onDidChange(() => { void updateAccount() }))
+
   const status = vscode.window.createStatusBarItem('dithub.connect', vscode.StatusBarAlignment.Left, 50)
   status.name = 'Dithub: Connect with 0G'
   status.command = 'dithub.connect'
@@ -96,6 +112,19 @@ export function activate(ctx: vscode.ExtensionContext): void {
     vscode.workspace.onDidChangeWorkspaceFolders(() => { void updateStatus() }),
 
     vscode.commands.registerCommand('dithub.signIn', () => auth.signIn()),
+    vscode.commands.registerCommand('dithub.account', async () => {
+      if (!(await auth.signedIn())) { await auth.signIn(); return }
+      const pick = await vscode.window.showQuickPick(
+        [
+          { label: '$(sign-out) Sign out', description: `remove this login from VS Code and revoke it on ${auth.host}`, id: 'out' },
+          { label: '$(account) Switch account', description: 'sign out, then sign in with another wallet', id: 'switch' },
+        ],
+        { title: `Dithub${auth.login ? `: @${auth.login}` : ''}`, placeHolder: auth.host },
+      )
+      if (!pick) return
+      await vscode.commands.executeCommand('dithub.signOut')
+      if (pick.id === 'switch' && !(await auth.signedIn())) await auth.signIn()
+    }),
     vscode.commands.registerCommand('dithub.signOut', async () => {
       const open = taskFolders()
       if (open.length && (await vscode.window.showWarningMessage('Signing out removes your open task folders. Unsubmitted edits stay saved for this workspace.', { modal: true }, 'Sign out')) !== 'Sign out') return

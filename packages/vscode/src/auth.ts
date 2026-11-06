@@ -40,6 +40,8 @@ export class Auth implements vscode.Disposable {
   async refreshContext(): Promise<void> { await vscode.commands.executeCommand('setContext', 'dithub.signedIn', await this.signedIn()) }
 
   private onUnauthorized(): void {
+    // A 401 means the stored token is dead (revoked on the site, signed out elsewhere, or expired): never keep it around.
+    void this.forget()
     const now = Date.now()
     if (now - this.unauthorizedPrompted < 60_000) return
     this.unauthorizedPrompted = now
@@ -114,6 +116,16 @@ export class Auth implements vscode.Disposable {
     await this.refreshContext()
     this.changed.fire()
     void vscode.window.showInformationMessage(token ? `Signed out of ${host}${note}.` : `You were not signed in to ${host}.`)
+  }
+
+  /** Remove the stored credential for the current host without contacting the server. */
+  async forget(): Promise<void> {
+    const host = this.host
+    if (!(await this.ctx.secrets.get(secretKey(host)))) return
+    await this.ctx.secrets.delete(secretKey(host))
+    await this.ctx.globalState.update(loginKey(host), undefined)
+    await this.refreshContext()
+    this.changed.fire()
   }
 
   /** Ensure a token exists; offers to sign in. */

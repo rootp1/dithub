@@ -44,55 +44,185 @@
     },
     "viewsWelcome": [
       {
-        "view": "dithub.issues",
-        "contents": "Sign in to Dithub to assign issues with 0G.\n[Sign in](command:dithub.signIn)",
-        "when": "!dithub.signedIn"
-      },
-      {
-        "view": "dithub.tasks",
-        "contents": "Sign in to Dithub to see the tasks assigned to you.\n[Sign in](command:dithub.signIn)",
-        "when": "!dithub.signedIn"
-      },
-      {
         "view": "dithub.tasks",
         "contents": "No tasks are assigned to you right now.\n[Refresh](command:dithub.refreshTasks)",
         "when": "dithub.signedIn"
+      },
+      {
+        "view": "dithub.issues",
+        "contents": "You are signed out of Dithub.\n[Sign in](command:dithub.signIn)",
+        "when": "!dithub.signedIn"
+      },
+      {
+        "view": "dithub.tasks",
+        "contents": "You are signed out of Dithub.\n[Sign in](command:dithub.signIn)",
+        "when": "!dithub.signedIn"
       }
     ],
     "commands": [
-      { "command": "dithub.signIn", "title": "Sign in", "category": "Dithub", "icon": "$(sign-in)" },
-      { "command": "dithub.signOut", "title": "Sign out", "category": "Dithub", "icon": "$(sign-out)" },
-      { "command": "dithub.chooseRepo", "title": "Choose repository…", "category": "Dithub", "icon": "$(repo)" },
-      { "command": "dithub.refreshIssues", "title": "Refresh issues", "category": "Dithub", "icon": "$(refresh)" },
-      { "command": "dithub.assign", "title": "Assign with 0G…", "category": "Dithub", "icon": "$(sparkle)" },
-      { "command": "dithub.refreshTasks", "title": "Refresh tasks", "category": "Dithub", "icon": "$(refresh)" },
-      { "command": "dithub.connect", "title": "Connect with 0G", "category": "Dithub", "icon": "$(plug)" },
-      { "command": "dithub.showTask", "title": "Show task", "category": "Dithub", "icon": "$(issues)" },
-      { "command": "dithub.ask", "title": "Ask 0G", "category": "Dithub", "icon": "$(comment-discussion)" },
-      { "command": "dithub.submit", "title": "Submit changes", "category": "Dithub", "icon": "$(git-pull-request-create)" },
-      { "command": "dithub.endTask", "title": "End task", "category": "Dithub", "icon": "$(debug-stop)" }
+      {
+        "command": "dithub.signIn",
+        "title": "Sign in",
+        "category": "Dithub",
+        "icon": "$(sign-in)"
+      },
+      {
+        "command": "dithub.signOut",
+        "title": "Sign out",
+        "category": "Dithub",
+        "icon": "$(sign-out)"
+      },
+      {
+        "command": "dithub.chooseRepo",
+        "title": "Choose repository\u2026",
+        "category": "Dithub",
+        "icon": "$(repo)"
+      },
+      {
+        "command": "dithub.refreshIssues",
+        "title": "Refresh issues",
+        "category": "Dithub",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "dithub.assign",
+        "title": "Assign with 0G\u2026",
+        "category": "Dithub",
+        "icon": "$(sparkle)"
+      },
+      {
+        "command": "dithub.refreshTasks",
+        "title": "Refresh tasks",
+        "category": "Dithub",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "dithub.connect",
+        "title": "Connect with 0G",
+        "category": "Dithub",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "dithub.showTask",
+        "title": "Show task",
+        "category": "Dithub",
+        "icon": "$(issues)"
+      },
+      {
+        "command": "dithub.ask",
+        "title": "Ask 0G",
+        "category": "Dithub",
+        "icon": "$(comment-discussion)"
+      },
+      {
+        "command": "dithub.submit",
+        "title": "Submit changes",
+        "category": "Dithub",
+        "icon": "$(git-pull-request-create)"
+      },
+      {
+        "command": "dithub.endTask",
+        "title": "End task",
+        "category": "Dithub",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "dithub.account",
+        "title": "Account\u2026",
+        "category": "Dithub",
+        "icon": "$(account)"
+      }
     ],
     "menus": {
       "commandPalette": [
-        { "command": "dithub.assign", "when": "false" }
+        {
+          "command": "dithub.assign",
+          "when": "false"
+        }
       ],
       "view/title": [
-        { "command": "dithub.chooseRepo", "when": "view == dithub.issues && dithub.signedIn", "group": "navigation@1" },
-        { "command": "dithub.refreshIssues", "when": "view == dithub.issues && dithub.signedIn", "group": "navigation@2" },
-        { "command": "dithub.refreshTasks", "when": "view == dithub.tasks && dithub.signedIn", "group": "navigation@1" },
-        { "command": "dithub.signOut", "when": "view == dithub.tasks && dithub.signedIn", "group": "zz" },
-        { "command": "dithub.signIn", "when": "view == dithub.tasks && !dithub.signedIn", "group": "zz" }
+        {
+          "command": "dithub.chooseRepo",
+          "when": "view == dithub.issues && dithub.signedIn",
+          "group": "navigation@1"
+        },
+        {
+          "command": "dithub.refreshIssues",
+          "when": "view == dithub.issues && dithub.signedIn",
+          "group": "navigation@2"
+        },
+        {
+          "command": "dithub.refreshTasks",
+          "when": "view == dithub.tasks && dithub.signedIn",
+          "group": "navigation@1"
+        },
+        {
+          "command": "dithub.signOut",
+          "when": "view == dithub.issues && dithub.signedIn",
+          "group": "navigation@9"
+        },
+        {
+          "command": "dithub.signIn",
+          "when": "view == dithub.issues && !dithub.signedIn",
+          "group": "navigation@9"
+        },
+        {
+          "command": "dithub.signOut",
+          "when": "view == dithub.tasks && dithub.signedIn",
+          "group": "navigation@9"
+        },
+        {
+          "command": "dithub.signIn",
+          "when": "view == dithub.tasks && !dithub.signedIn",
+          "group": "navigation@9"
+        }
       ],
       "view/item/context": [
-        { "command": "dithub.assign", "when": "view == dithub.issues && viewItem == dithub.issue", "group": "inline" },
-        { "command": "dithub.assign", "when": "view == dithub.issues && viewItem == dithub.issue", "group": "1_dithub@1" },
-        { "command": "dithub.connect", "when": "view == dithub.tasks && viewItem == dithub.task.active", "group": "inline@1" },
-        { "command": "dithub.ask", "when": "view == dithub.tasks && viewItem == dithub.task.active", "group": "inline@2" },
-        { "command": "dithub.connect", "when": "view == dithub.tasks && viewItem == dithub.task.active", "group": "1_dithub@1" },
-        { "command": "dithub.showTask", "when": "view == dithub.tasks && viewItem == dithub.task.active", "group": "1_dithub@2" },
-        { "command": "dithub.ask", "when": "view == dithub.tasks && viewItem == dithub.task.active", "group": "1_dithub@3" },
-        { "command": "dithub.submit", "when": "view == dithub.tasks && viewItem == dithub.task.active", "group": "1_dithub@4" },
-        { "command": "dithub.endTask", "when": "view == dithub.tasks && viewItem == dithub.task.active", "group": "2_dithub@1" }
+        {
+          "command": "dithub.assign",
+          "when": "view == dithub.issues && viewItem == dithub.issue",
+          "group": "inline"
+        },
+        {
+          "command": "dithub.assign",
+          "when": "view == dithub.issues && viewItem == dithub.issue",
+          "group": "1_dithub@1"
+        },
+        {
+          "command": "dithub.connect",
+          "when": "view == dithub.tasks && viewItem == dithub.task.active",
+          "group": "inline@1"
+        },
+        {
+          "command": "dithub.ask",
+          "when": "view == dithub.tasks && viewItem == dithub.task.active",
+          "group": "inline@2"
+        },
+        {
+          "command": "dithub.connect",
+          "when": "view == dithub.tasks && viewItem == dithub.task.active",
+          "group": "1_dithub@1"
+        },
+        {
+          "command": "dithub.showTask",
+          "when": "view == dithub.tasks && viewItem == dithub.task.active",
+          "group": "1_dithub@2"
+        },
+        {
+          "command": "dithub.ask",
+          "when": "view == dithub.tasks && viewItem == dithub.task.active",
+          "group": "1_dithub@3"
+        },
+        {
+          "command": "dithub.submit",
+          "when": "view == dithub.tasks && viewItem == dithub.task.active",
+          "group": "1_dithub@4"
+        },
+        {
+          "command": "dithub.endTask",
+          "when": "view == dithub.tasks && viewItem == dithub.task.active",
+          "group": "2_dithub@1"
+        }
       ]
     },
     "configuration": {
