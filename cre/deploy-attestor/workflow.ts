@@ -22,7 +22,7 @@ export const configSchema = z.object({
   chainSelectorName: z.string(),
   registryAddress: z.string(),
   attestationsAddress: z.string(),
-  gasLimit: z.string().default('500000'),
+  gasLimit: z.string().default('1000000'),
   // Optional: EVM addresses allowed to call the HTTP trigger once deployed (CI signer). Not needed for simulation.
   httpAuthorizedAddresses: z.array(z.string()).default([]),
 })

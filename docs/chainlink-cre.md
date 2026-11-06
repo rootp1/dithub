@@ -84,3 +84,17 @@ The workflow compiles to WASM (`bunx cre-compile main.ts out.wasm` inside `cre/d
 The live site (`https://172-105-43-184.sslip.io`) does not yet serve `/build.json` (it returns the SPA index page), so until
 the web server ships `build.json` the workflow will correctly attest `ok=false` for the live site. The served `app.js`,
 `index.html`, `style.css` already hash identically to local `apps/web/dist` (bundleHash `0xe30e835b...604b`, registry release #2).
+
+## Verified run (2026-11-06, Ethereum Sepolia)
+
+`cre login` (browser) then `cre workflow simulate deploy-attestor --target staging-settings --non-interactive --trigger-index 1 --broadcast`:
+
+- Registry release #3 (commit `e01bc3fd36d2…`, bundleHash `0xafa0d9a5…3587`, published by tx `0x7192f325…ec4f`) was read at the **latest** block.
+- The workflow fetched `/build.json` and every listed file from the live site, recomputed all hashes inside the workflow and got `ok=true` (bundle, files, build.json self-consistency and commit all match).
+- CRE wrote the report through the MockKeystoneForwarder; `DeployAttestations.attestation(3)` returned `exists=true, ok=true, count=1`. Tx `0x50e4c5d3b18901581fffde9081a2aaa5c9c6449756ae96972b98c9fef687995c`.
+- The Arkiv mirror then picked up the attestation and `GET /api/deployments/latest` on production reports release 3 as attested (source: arkiv).
+
+Two things we learned the hard way:
+
+1. **Gas.** `onReport` needs about 390k gas. With a 500k limit the forwarder's inner call ran out of gas and the forwarder swallowed the failure (the outer transaction still shows `status 1`; the forwarder event's data word is `0`). The workflow now uses `gasLimit: 1000000`. Always check `attestation(id)` on-chain, not just the transaction status.
+2. **Block tag.** Reading the registry at the *finalized* block lags about 13 minutes, which attests the previous release right after a deploy. The workflow reads at the latest block; `DeployAttestations` re-checks commit and bundleHash against the registry when the report lands, so this is safe.
