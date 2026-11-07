@@ -85,9 +85,9 @@ a { color: var(--accent); text-decoration: none; }
 .top-inner { width: min(100%, 1344px); min-height: 64px; margin: 0 auto; padding: 0 32px; display: flex; align-items: center; gap: 28px; }
 .brand { display: inline-flex; flex: 0 0 auto; align-items: center; gap: 9px; min-height: 44px; color: var(--fg); font-size: 17px; font-weight: 700; letter-spacing: -.02em; }
 @media (hover: hover) and (pointer: fine) { .brand:hover { color: var(--fg); text-decoration: none; } }
-.brand-mark { width: 28px; height: 28px; overflow: visible; color: var(--accent); filter: drop-shadow(0 4px 8px var(--brand-glow)); }
-.brand-mark path { fill: none; stroke: currentColor; stroke-width: 2.25; stroke-linecap: round; stroke-linejoin: round; }
-.brand-mark circle { fill: var(--canvas); stroke: currentColor; stroke-width: 2.25; }
+.brand-mark { width: 30px; height: 30px; overflow: visible; color: var(--accent); filter: drop-shadow(0 4px 8px var(--brand-glow)); }
+.brand-mark path { fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.brand-mark circle { fill: none; stroke: currentColor; stroke-width: 1.8; }
 
 #nav { min-width: 0; flex: 1; display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .nav-pages, .nav-actions { display: flex; align-items: center; gap: 6px; }
@@ -298,7 +298,7 @@ input:focus-visible, select:focus-visible, textarea:focus-visible { outline: 0; 
 @media (max-width: 480px) {
   body { font-size: 14px; }
   .brand span { display: none; }
-  .brand-mark { width: 30px; height: 30px; }
+  .brand-mark { width: 32px; height: 32px; }
   .nav-actions { gap: 4px; }
   .user-trigger { padding: 3px; }
   .page-heading { flex-direction: column; gap: 16px; }
